@@ -1,0 +1,39 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jungle_api
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://jungle:jungle_dev@db:5432/jungle_processor
+    volumes:
+      - .:/app
+      - api_node_modules:/app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    container_name: jungle_db
+    environment:
+      POSTGRES_USER: jungle
+      POSTGRES_PASSWORD: jungle_dev
+      POSTGRES_DB: jungle_processor
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jungle -d jungle_processor"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  api_node_modules:
