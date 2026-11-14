@@ -3,7 +3,7 @@ import { MikroOrmModule } from '@mikro-orm/nestjs';
 
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
-import mikroOrmConfig from '../mikro-orm.config.js';
+import mikroOrmConfig from './mikro-orm.config.js';
 
 @Module({
   imports: [
