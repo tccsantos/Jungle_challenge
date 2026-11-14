@@ -11,7 +11,7 @@ import {
 @Unique({
   properties: ['playerId', 'currency'],
 })
-export class Wallet {
+export class WalletEntity {
   @PrimaryKey({ columnType: 'uuid' })
   id: string = randomUUID();
 
