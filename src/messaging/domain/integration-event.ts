@@ -1,12 +1,10 @@
-import { randomUUID } from 'node:crypto';
-
 export interface MoneyProps {
   amount: string;
   currency: string;
 }
 
 export interface IntegrationEventProps<T> {
-  eventId?: string;
+  eventId: string;
   aggregateId: string;
   correlationId: string;
   causationId?: string;
@@ -16,6 +14,7 @@ export interface IntegrationEventProps<T> {
 
 export interface EventContext {
   correlationId: string;
+  eventId: string;
   causationId?: string;
   occurredAt?: Date;
 }
@@ -32,7 +31,7 @@ export abstract class IntegrationEvent<T> {
   readonly data: Readonly<T>;
 
   protected constructor(props: IntegrationEventProps<T>) {
-    this.eventId = props.eventId ?? randomUUID();
+    this.eventId = props.eventId;
     this.aggregateId = props.aggregateId;
     this.correlationId = props.correlationId;
     this.causationId = props.causationId;

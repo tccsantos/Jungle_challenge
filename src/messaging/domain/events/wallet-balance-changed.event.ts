@@ -54,6 +54,7 @@ export class WalletBalanceChanged extends IntegrationEvent<WalletBalanceChangedD
     return new WalletBalanceChanged({
       aggregateId: entry.walletId,
       correlationId: ctx.correlationId,
+      eventId: ctx.eventId,
       causationId: ctx.causationId,
       occurredAt: ctx.occurredAt ?? entry.createdAt,
       data: {
