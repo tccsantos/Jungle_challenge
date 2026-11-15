@@ -64,4 +64,19 @@ export class WalletRepository {
       updatedAt: entity.updatedAt,
     });
   }
+
+  async create(wallet: Wallet, em: EntityManager = this.em): Promise<void> {
+    const entity = new WalletEntity();
+
+    entity.id = wallet.id;
+    entity.playerId = wallet.playerId;
+    entity.currency = wallet.currency;
+    entity.balance = wallet.balance.toDecimalString();
+    entity.version = wallet.version;
+    entity.createdAt = wallet.createdAt;
+    entity.updatedAt = wallet.updatedAt;
+
+    em.persist(entity);
+  }
+
 }
