@@ -21,7 +21,7 @@ import {
   properties: ['providerId', 'externalTransactionId'],
 })
 @Unique({
-  properties: ['idempotencyKey'],
+  properties: ['idempotencyKey', 'idempotencyKey'],
 })
 @Index({
   properties: ['providerId', 'referenceExternalTransactionId'],
