@@ -3,12 +3,17 @@ import { MikroOrmModule } from '@mikro-orm/nestjs';
 
 import { WalletEntity } from './entities/wallet.entity.js';
 import { WalletRepository } from './repositories/wallet.repository.js';
+import { CreateWalletUseCase } from './application/create-wallet.use-case.js';
 
 @Module({
-  imports: [
-    MikroOrmModule.forFeature([WalletEntity]),
+  imports: [MikroOrmModule.forFeature([WalletEntity])],
+  providers: [
+    WalletRepository,
+    CreateWalletUseCase,
   ],
-  providers: [WalletRepository],
-  exports: [WalletRepository],
+  exports: [
+    WalletRepository,
+    CreateWalletUseCase,
+  ],
 })
 export class WalletModule {}
