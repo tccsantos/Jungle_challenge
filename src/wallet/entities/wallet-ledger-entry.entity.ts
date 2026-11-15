@@ -16,41 +16,44 @@ import { LedgerDirection } from '../domain/wallet-ledger-entry.js';
   properties: ['wallet', 'transactionId'],
 })
 export class WalletLedgerEntryEntity {
-  @PrimaryKey({ columnType: 'uuid' })
-  id: string = randomUUID();
+    @PrimaryKey({ columnType: 'uuid' })
+    id: string = randomUUID();
 
-  @ManyToOne(() => WalletEntity, {
-    fieldName: 'wallet_id',
-    deleteRule: 'restrict',
-  })
-  wallet!: WalletEntity;
+    @ManyToOne(() => WalletEntity, {
+        fieldName: 'wallet_id',
+        deleteRule: 'restrict',
+    })
+    wallet!: WalletEntity;
 
-  @Property({
-    fieldName: 'transaction_id',
-    columnType: 'uuid',
-  })
-  transactionId!: string;
+    @Property({
+        fieldName: 'transaction_id',
+        columnType: 'uuid',
+    })
+    transactionId!: string;
 
-  @Property({ length: 6 })
-  direction!: LedgerDirection;
+    @Property({
+    length: 6,
+    columnType: 'varchar(6)',
+    })
+    direction!: LedgerDirection;
 
-  @Property({ columnType: 'numeric(20, 2)' })
-  amount!: string;
+    @Property({ columnType: 'numeric(20, 2)' })
+    amount!: string;
 
-  @Property({
-    fieldName: 'balance_before',
-    columnType: 'numeric(20, 2)',
-  })
-  balanceBefore!: string;
+    @Property({
+        fieldName: 'balance_before',
+        columnType: 'numeric(20, 2)',
+    })
+    balanceBefore!: string;
 
-  @Property({
-    fieldName: 'balance_after',
-    columnType: 'numeric(20, 2)',
-  })
-  balanceAfter!: string;
+    @Property({
+        fieldName: 'balance_after',
+        columnType: 'numeric(20, 2)',
+    })
+    balanceAfter!: string;
 
-  @Property({
-    columnType: 'timestamptz',
-  })
-  createdAt: Date = new Date();
+    @Property({
+        columnType: 'timestamptz',
+    })
+    createdAt: Date = new Date();
 }
