@@ -148,35 +148,145 @@ describe('WagerTransaction', () => {
         expect(transactionRollback.ledgerDirectionFor(transaction)).toBe(LedgerDirection.Debit);
     });
 
-    it('should not allow transitions of Processed, Failed and Rejected status', () => {
+    it.each([
+        WagerTransactionStatus.Processed,
+        WagerTransactionStatus.Rejected,
+        WagerTransactionStatus.Failed,
+    ])('should not allow transitions from terminal status %s', (status: WagerTransactionStatus) => {
         const transaction = WagerTransaction.create({
             ...baseProps,
-            kind: WagerTransactionKind.Win
+            kind: WagerTransactionKind.Bet,
         });
-        transaction.markProcessed(new Date())
 
-        expect(() =>
-            transaction.fail(FailureCode.InternalError)
-        ).toThrow(new InvalidTransactionStateError(transaction.status));
+        if (status === WagerTransactionStatus.Processed) {
+            transaction.markProcessed(new Date());
+        } else if (status === WagerTransactionStatus.Rejected) {
+            transaction.reject(FailureCode.InsufficientFunds);
+        } else {
+            transaction.fail(FailureCode.InternalError);
+        }
+
+        expect(() => transaction.reject(FailureCode.InvalidTransaction))
+            .toThrow(InvalidTransactionStateError);
     });
 
-    it('should reject referencens with unmatched values, wallets and currency', () => {
-        const transaction = WagerTransaction.create({
+    it('should reject references with different currencies', () => {
+        const reference = WagerTransaction.create({
             ...baseProps,
-            kind: WagerTransactionKind.Win
+            kind: WagerTransactionKind.Bet,
         });
-        transaction.markProcessed(new Date())
-        const transactionRollback = WagerTransaction.create({
+
+        reference.markProcessed(new Date());
+
+        const rollback = WagerTransaction.create({
             ...baseProps,
             externalTransactionId: 'externalId-2',
             kind: WagerTransactionKind.Rollback,
-            referenceExternalTransactionId: transaction.externalTransactionId,
-            money: Money.fromDecimal('100.00', 'USD')
+            referenceExternalTransactionId: reference.externalTransactionId,
+            money: Money.fromDecimal('100.00', 'USD'),
         });
 
-        expect(() =>
-            transactionRollback.ledgerDirectionFor()
-        ).toThrow('Reference transaction is required');
+        expect(() => rollback.ledgerDirectionFor(reference))
+            .toThrow('Reference transaction does not match');
+    });
+
+    it('should reject references with different wallets', () => {
+        const reference = WagerTransaction.create({
+            ...baseProps,
+            kind: WagerTransactionKind.Bet,
+        });
+
+        reference.markProcessed(new Date());
+
+        const rollback = WagerTransaction.create({
+            ...baseProps,
+            externalTransactionId: 'externalId-2',
+            kind: WagerTransactionKind.Rollback,
+            referenceExternalTransactionId: reference.externalTransactionId,
+            walletId: 'alternate-wallet',
+        });
+
+        expect(() => rollback.ledgerDirectionFor(reference))
+            .toThrow('Reference transaction does not match');
+    });
+
+    it('should reject references with different players', () => {
+        const reference = WagerTransaction.create({
+            ...baseProps,
+            kind: WagerTransactionKind.Bet,
+        });
+
+        reference.markProcessed(new Date());
+
+        const rollback = WagerTransaction.create({
+            ...baseProps,
+            externalTransactionId: 'externalId-2',
+            kind: WagerTransactionKind.Rollback,
+            referenceExternalTransactionId: reference.externalTransactionId,
+            playerId: 'alternate-player'
+        });
+
+        expect(() => rollback.ledgerDirectionFor(reference))
+            .toThrow('Reference transaction does not match');
+    });
+
+    it('should reject references with different rounds', () => {
+        const reference = WagerTransaction.create({
+            ...baseProps,
+            kind: WagerTransactionKind.Bet,
+        });
+
+        reference.markProcessed(new Date());
+
+        const rollback = WagerTransaction.create({
+            ...baseProps,
+            externalTransactionId: 'externalId-2',
+            kind: WagerTransactionKind.Rollback,
+            referenceExternalTransactionId: reference.externalTransactionId,
+            roundId: 'alternate-round'
+        });
+
+        expect(() => rollback.ledgerDirectionFor(reference))
+            .toThrow('Reference transaction does not match');
+    });
+
+    it('should reject references with different providers', () => {
+        const reference = WagerTransaction.create({
+            ...baseProps,
+            kind: WagerTransactionKind.Bet,
+        });
+
+        reference.markProcessed(new Date());
+
+        const rollback = WagerTransaction.create({
+            ...baseProps,
+            externalTransactionId: 'externalId-2',
+            kind: WagerTransactionKind.Rollback,
+            referenceExternalTransactionId: reference.externalTransactionId,
+            providerId: 'alternate-provider'
+        });
+
+        expect(() => rollback.ledgerDirectionFor(reference))
+            .toThrow('Reference transaction does not match');
+    });
+
+    it('should reject references with different external transaction ids', () => {
+        const reference = WagerTransaction.create({
+            ...baseProps,
+            kind: WagerTransactionKind.Bet,
+        });
+
+        reference.markProcessed(new Date());
+
+        const rollback = WagerTransaction.create({
+            ...baseProps,
+            externalTransactionId: 'externalId-2',
+            kind: WagerTransactionKind.Rollback,
+            referenceExternalTransactionId: 'alternate-external-transaction-id',
+        });
+
+        expect(() => rollback.ledgerDirectionFor(reference))
+            .toThrow('Reference transaction does not match');
     });
 });
 

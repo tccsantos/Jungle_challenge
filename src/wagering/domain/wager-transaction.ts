@@ -196,7 +196,7 @@ export class WagerTransaction {
 
   markProcessed(
     at: Date,
-    referenceTransactionId?: string | undefined,
+    referenceTransactionId?: string,
   ): void {
     this.assertCanTransition();
 
@@ -285,6 +285,14 @@ export class WagerTransaction {
   ): LedgerDirection {
     if (!reference) {
       throw new Error('Reference transaction is required');
+    }
+
+    if (
+        !this.referenceExternalTransactionId ||
+        this.referenceExternalTransactionId !==
+            reference.externalTransactionId
+    ) {
+        throw new Error('Reference transaction does not match');
     }
 
     if (reference.status !== WagerTransactionStatus.Processed) {
