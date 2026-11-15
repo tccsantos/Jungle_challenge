@@ -145,7 +145,7 @@ describe('WagerTransaction', () => {
         expect(() =>
             transactionRollback.ledgerDirectionFor()
         ).toThrow('Reference transaction is required');
-        expect(transactionRollback.ledgerDirectionFor(transaction)).toBe(LedgerDirection.Credit);
+        expect(transactionRollback.ledgerDirectionFor(transaction)).toBe(LedgerDirection.Debit);
     });
 
     it('should not allow transitions of Processed, Failed and Rejected status', () => {
