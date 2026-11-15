@@ -83,11 +83,12 @@ export class WagerTransactionEntity {
   })
   referenceExternalTransactionId?: string;
 
-  @Property({
-    columnType: 'uuid',
+  @ManyToOne(() => WagerTransactionEntity, {
+    fieldName: 'reference_transaction_id',
     nullable: true,
+    deleteRule: 'restrict',
   })
-  referenceTransactionId?: string;
+  referenceTransaction?: WagerTransactionEntity;
 
   @Property({
     length: 64,
@@ -104,11 +105,4 @@ export class WagerTransactionEntity {
     nullable: true,
   })
   processedAt?: Date;
-
-  @ManyToOne(() => WagerTransactionEntity, {
-    fieldName: 'reference_transaction_id',
-    nullable: true,
-    deleteRule: 'restrict',
-  })
-  referenceTransaction?: WagerTransactionEntity;
 }
