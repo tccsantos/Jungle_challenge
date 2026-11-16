@@ -14,7 +14,6 @@ import { WalletLedgerRepository } from '../../wallet/repositories/wallet-ledger.
 
 import {
   FailureCode,
-  WagerTransaction,
   WagerTransactionStatus,
 } from '../domain/wager-transaction.js';
 import { WagerTransactionRepository } from '../repositories/wager-transaction.repository.js';

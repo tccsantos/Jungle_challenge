@@ -22,11 +22,7 @@ import { OutboxPublisherWorker } from '../src/messaging/workers/outbox-publisher
 import { PendingReferenceWorker } from '../src/wagering/workers/pending-reference.worker.js';
 import { WagerCommandConsumerWorker } from '../src/wagering/workers/wager-command-consumer.worker.js';
 
-import { 
-    WagerTransactionKind,
-    WagerTransactionStatus,
-    FailureCode
- } from '../src/wagering/domain/wager-transaction.js';
+import { WagerTransactionStatus } from '../src/wagering/domain/wager-transaction.js';
 
 import { LedgerDirection } from '../src/wallet/domain/wallet-ledger-entry.js';
 
