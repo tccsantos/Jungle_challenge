@@ -11,6 +11,10 @@ import {
   name: 'outbox_messages_pending_idx',
   properties: ['publishedAt', 'nextAttemptAt', 'occurredAt'],
 })
+@Index({
+  name: 'outbox_messages_lease_idx',
+  properties: ['publishedAt', 'leaseUntil', 'nextAttemptAt'],
+})
 export class OutboxMessageEntity {
   @PrimaryKey({ columnType: 'uuid' })
   id: string = randomUUID();
@@ -43,4 +47,19 @@ export class OutboxMessageEntity {
     nullable: true,
   })
   publishedAt?: Date;
+
+  @Property({
+    fieldName: 'lease_token',
+    columnType: 'uuid',
+    nullable: true,
+  })
+  leaseToken?: string;
+
+  @Property({
+    fieldName: 'lease_until',
+    columnType: 'timestamptz',
+    nullable: true,
+  })
+  leaseUntil?: Date;
+
 }
