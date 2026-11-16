@@ -33,6 +33,29 @@ export class WagerTransactionQueryController {
     return transaction;
   }
 
+  @Get(
+    'providers/:providerId/wagering/transactions/:externalTransactionId',
+  )
+  async findByProviderAndExternalId(
+    @Param('providerId') providerId: string,
+    @Param('externalTransactionId')
+    externalTransactionId: string,
+  ) {
+    const transaction =
+      await this.transactions.findByProviderAndExternalId(
+        providerId,
+        externalTransactionId,
+      );
+
+    if (!transaction) {
+      throw new NotFoundException(
+        'Transaction not found',
+      );
+    }
+
+    return transaction;
+  }
+
   @Get('wallets/:id/transactions')
   async history(
     @Param('id', new ParseUUIDPipe()) walletId: string,

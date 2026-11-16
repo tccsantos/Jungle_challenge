@@ -261,6 +261,59 @@ describe('HTTP API - E2E', () => {
     expect(response.body.status).toBe(WagerTransactionStatus.Processed);
   });
 
+  it('finds a transaction by provider and external ID', async () => {
+    // A transação de abertura já foi criada pela suíte.
+    const original = await request(app.getHttpServer())
+      .get(`/wagering/transactions/${transactionId}`)
+      .expect(200);
+
+    const { providerId, externalTransactionId } =
+      original.body;
+
+    expect(providerId).toBeTruthy();
+    expect(externalTransactionId).toBeTruthy();
+
+    const response = await request(app.getHttpServer())
+      .get(
+        `/providers/${encodeURIComponent(providerId)}` +
+        `/wagering/transactions/` +
+        encodeURIComponent(externalTransactionId),
+      )
+      .expect(200);
+
+    expect(response.body).toEqual(original.body);
+  });
+
+  it('returns 404 for an unknown external transaction ID', async () => {
+    const original = await request(app.getHttpServer())
+      .get(`/wagering/transactions/${transactionId}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(
+        `/providers/${encodeURIComponent(original.body.providerId)}` +
+        `/wagering/transactions/${randomUUID()}`,
+      )
+      .expect(404);
+  });
+
+  it('does not expose transactions from another provider', async () => {
+    const original = await request(app.getHttpServer())
+      .get(`/wagering/transactions/${transactionId}`)
+      .expect(200);
+
+    const externalTransactionId =
+      original.body.externalTransactionId;
+
+    await request(app.getHttpServer())
+      .get(
+        `/providers/another-provider-${randomUUID()}` +
+        `/wagering/transactions/` +
+        encodeURIComponent(externalTransactionId),
+      )
+      .expect(404);
+  });
+
   it('returns 404 for a nonexistent transaction', async () => {
     await request(app.getHttpServer())
       .get(`/wagering/transactions/${randomUUID()}`)

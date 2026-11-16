@@ -80,6 +80,23 @@ export class WagerTransactionQueryRepository {
     return entity ? this.toDetails(entity) : null;
   }
 
+  async findByProviderAndExternalId(
+    providerId: string,
+    externalTransactionId: string,
+  ): Promise<TransactionDetails | null> {
+    const em = this.em.fork();
+
+    const entity = await em.findOne(
+      WagerTransactionEntity,
+      {
+        providerId,
+        externalTransactionId,
+      },
+    );
+
+    return entity ? this.toDetails(entity) : null;
+  }
+
   async findByWallet(
     walletId: string,
     limit = 20,
