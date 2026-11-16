@@ -49,12 +49,20 @@ export class OutboxRepository {
 
   async claimPending(
     limit: number = 20,
+    aggregateId?: string,
   ): Promise<ClaimedOutboxMessage[]> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
       throw new Error('Invalid outbox batch limit');
     }
-
+    const aggregateFilter = aggregateId
+      ? 'AND o.aggregate_id = ?'
+      : '';
+      
     const leaseToken = randomUUID();
+
+    const parameters = aggregateId
+      ? [aggregateId, limit, leaseToken]
+      : [limit, leaseToken];
 
     const rows = await this.em.fork().execute<OutboxRow[]>(
       `
@@ -62,6 +70,7 @@ export class OutboxRepository {
           SELECT o.id
           FROM outbox_messages o
           WHERE o.published_at IS NULL
+            ${aggregateFilter}
             AND (
               o.next_attempt_at IS NULL
               OR o.next_attempt_at <= NOW()
@@ -89,7 +98,7 @@ export class OutboxRepository {
         WHERE o.id = candidates.id
         RETURNING o.*
       `,
-      [limit, leaseToken],
+      parameters,
       'all',
     );
 
