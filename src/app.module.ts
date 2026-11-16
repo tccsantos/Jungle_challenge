@@ -16,6 +16,7 @@ import { InboxMessageEntity } from './messaging/entities/inbox-message.entity.js
 import { OutboxMessageEntity } from './messaging/entities/outbox-message.entity.js';
 
 import { HealthController } from './observability/health.controller.js';
+import { MessagingModule } from './messaging/messaging.module.js';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { HealthController } from './observability/health.controller.js';
     ScheduleModule.forRoot(),
     WalletModule,
     WageringModule,
+    MessagingModule,
   ],
   controllers: [
     AppController,
