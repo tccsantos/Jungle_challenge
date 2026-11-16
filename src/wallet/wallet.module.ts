@@ -10,6 +10,8 @@ import { WalletLedgerRepository } from './repositories/wallet-ledger.repository.
 import { CreateWalletUseCase } from './application/create-wallet.use-case.js';
 import { WalletController } from './wallet.controller.js';
 
+import { ReconcileWalletsUseCase } from './application/reconcile-wallets.use-case.js';
+
 @Module({
   imports: [
     MikroOrmModule.forFeature([
@@ -22,6 +24,7 @@ import { WalletController } from './wallet.controller.js';
     WalletRepository,
     WalletLedgerRepository,
     CreateWalletUseCase,
+    ReconcileWalletsUseCase,
   ],
   exports: [
     WalletRepository,
