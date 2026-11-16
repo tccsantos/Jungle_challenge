@@ -296,6 +296,23 @@
           "enumItems": [],
           "mappedType": "json"
         },
+        "publish_order": {
+          "name": "publish_order",
+          "type": "bigint",
+          "unsigned": false,
+          "autoincrement": true,
+          "primary": false,
+          "nullable": false,
+          "unique": true,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "bigint"
+        },
         "published_at": {
           "name": "published_at",
           "type": "timestamptz(6)",
@@ -315,6 +332,18 @@
         }
       },
       "indexes": [
+        {
+          "columnNames": [
+            "aggregate_id",
+            "publish_order"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "outbox_messages_aggregate_order_idx",
+          "primary": false,
+          "unique": false,
+          "where": "published_at IS NULL"
+        },
         {
           "columnNames": [
             "published_at",
@@ -347,6 +376,16 @@
           "constraint": true,
           "keyName": "outbox_messages_pkey",
           "primary": true,
+          "unique": true
+        },
+        {
+          "columnNames": [
+            "publish_order"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "outbox_messages_publish_order_idx",
+          "primary": false,
           "unique": true
         }
       ],
@@ -786,7 +825,14 @@
           "where": "(reference_transaction_id IS NOT NULL) AND ((kind)::text = ANY ((ARRAY['REFUND'::character varying, 'ROLLBACK'::character varying])::text[])) AND ((status)::text = 'PROCESSED'::text)"
         }
       ],
-      "checks": [],
+      "checks": [
+        {
+          "name": "wager_transactions_amount_positive",
+          "expression": "amount > 0",
+          "definition": "CHECK ((amount > (0)::numeric))",
+          "columnName": "amount"
+        }
+      ],
       "triggers": [],
       "foreignKeys": {
         "wager_transactions_reference_transaction_id_foreign": {
@@ -971,6 +1017,18 @@
         {
           "columnNames": [
             "wallet_id",
+            "created_at",
+            "id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "wallet_ledger_entries_wallet_history_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "wallet_id",
             "transaction_id"
           ],
           "composite": true,
@@ -1145,7 +1203,14 @@
           "unique": true
         }
       ],
-      "checks": [],
+      "checks": [
+        {
+          "name": "wallets_balance_non_negative",
+          "expression": "balance >= 0",
+          "definition": "CHECK ((balance >= (0)::numeric))",
+          "columnName": "balance"
+        }
+      ],
       "triggers": [],
       "foreignKeys": {},
       "comment": null
