@@ -80,37 +80,13 @@ describe('HTTP API - E2E', () => {
     orm = app.get(MikroORM);
   });
 
+  
   afterAll(async () => {
-    if (orm && walletId) {
-      const em = orm.em.fork();
-
-      // Remove apenas a carteira criada por esta suíte.
-      // Nunca executar contra o banco de desenvolvimento.
-      await em.execute(
-        'DELETE FROM outbox_messages WHERE aggregate_id = ?',
-        [walletId],
-      );
-
-      await em.execute(
-        'DELETE FROM wallet_ledger_entries WHERE wallet_id = ?::uuid',
-        [walletId],
-      );
-
-      await em.execute(
-        'DELETE FROM wager_transactions WHERE wallet_id = ?::uuid',
-        [walletId],
-      );
-
-      await em.execute(
-        'DELETE FROM wallets WHERE id = ?::uuid',
-        [walletId],
-      );
-    }
-
     if (app) {
       await app.close();
     }
   });
+
 
   it('starts the complete NestJS application', async () => {
     const response = await request(app.getHttpServer())
