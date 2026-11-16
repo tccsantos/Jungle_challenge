@@ -79,7 +79,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
       walletId: wallet.id,
       roundId: 'round-test',
       gameId: 'game-test',
-      kind: 'BET',
+      kind: WagerTransactionKind.Bet,
       money: {
         amount,
         currency: 'BRL',
@@ -285,4 +285,116 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
       ),
     ).toHaveLength(1);
   });
+
+
+  it('processes the same BET 50 times concurrently only once', async () => {
+    const wallet = await createWallet('100.00');
+
+    const input = betInput(wallet, '25.00');
+
+    const results = await Promise.all(
+        Array.from({ length: 50 }, () =>
+        createProcessor().execute(input),
+        ),
+    );
+
+    expect(
+        results.filter((result) => !result.idempotentReplay),
+    ).toHaveLength(1);
+
+    expect(
+        results.filter((result) => result.idempotentReplay),
+    ).toHaveLength(49);
+
+    const transactionIds = new Set(
+        results.map((result) => result.transactionId),
+    );
+
+    expect(transactionIds.size).toBe(1);
+
+    expect(
+        results.every(
+        (result) =>
+            result.status === WagerTransactionStatus.Processed &&
+            result.balance.amount === '75.00',
+        ),
+    ).toBe(true);
+
+    const em = orm.em.fork();
+
+    const storedWallet = await em.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('75.00');
+    expect(storedWallet.version).toBe(2);
+
+    const transactions = await em.find(
+        WagerTransactionEntity,
+        {
+        wallet: wallet.id,
+        kind: WagerTransactionKind.Bet,
+        },
+    );
+
+    expect(transactions).toHaveLength(1);
+
+    const ledger = await em.find(
+        WalletLedgerEntryEntity,
+        { wallet: wallet.id },
+    );
+
+    expect(
+        ledger.filter((entry) => entry.direction === LedgerDirection.Debit),
+    ).toHaveLength(1);
+
+    const events = await em.find(
+        OutboxMessageEntity,
+        { aggregateId: wallet.id },
+    );
+
+    // Dois eventos de abertura e dois da BET.
+    expect(events).toHaveLength(4);
+  });
+
+
+  it('rejects the same idempotency key with different payload', async () => {
+    const wallet = await createWallet('100.00');
+    const processor = createProcessor();
+
+    const input = betInput(wallet, '20.00');
+
+    const original = await processor.execute(input);
+
+    expect(original.status).toBe(WagerTransactionStatus.Processed);
+
+    await expect(
+        processor.execute({
+        ...input,
+        money: {
+            amount: '30.00',
+            currency: 'BRL',
+        },
+        }),
+    ).rejects.toThrow();
+
+    const em = orm.em.fork();
+
+    const storedWallet = await em.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('80.00');
+
+    expect(
+        await em.count(WagerTransactionEntity, {
+        wallet: wallet.id,
+        kind: WagerTransactionKind.Bet,
+        }),
+    ).toBe(1);
+  });
+
+
 });
