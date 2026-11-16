@@ -39,6 +39,7 @@ export class WagerTransactionRepository {
   async create(
     transaction: WagerTransaction,
     em: EntityManager = this.em,
+    resultBalance?: Money,
   ): Promise<void> {
     const entity = new WagerTransactionEntity();
 
@@ -76,6 +77,7 @@ export class WagerTransactionRepository {
     entity.failureCode = transaction.failureCode;
     entity.createdAt = transaction.createdAt;
     entity.processedAt = transaction.processedAt;
+    entity.resultBalance = resultBalance?.toDecimalString();
 
     em.persist(entity);
   }
@@ -83,6 +85,7 @@ export class WagerTransactionRepository {
   async save(
     transaction: WagerTransaction,
     em: EntityManager = this.em,
+    resultBalance?: Money,
   ): Promise<void> {
     const entity = await em.findOneOrFail(
       WagerTransactionEntity,
@@ -92,6 +95,10 @@ export class WagerTransactionRepository {
     entity.status = transaction.status;
     entity.failureCode = transaction.failureCode;
     entity.processedAt = transaction.processedAt;
+
+    if (resultBalance !== undefined) {
+        entity.resultBalance = resultBalance.toDecimalString();
+    }
 
     entity.referenceTransaction = transaction.referenceTransactionId
       ? em.getReference(
@@ -129,4 +136,35 @@ export class WagerTransactionRepository {
       processedAt: entity.processedAt,
     });
   }
+
+
+  async findByIdempotencyKeyWithResult(
+    providerId: string,
+    idempotencyKey: string,
+    em: EntityManager = this.em,
+  ): Promise<{
+    transaction: WagerTransaction;
+    resultBalance: Money | null;
+    } | null> {
+    const entity = await em.findOne(WagerTransactionEntity, {
+        providerId,
+        idempotencyKey,
+    });
+
+    if (!entity) {
+        return null;
+    }
+
+    return {
+        transaction: this.toDomain(entity),
+        resultBalance:
+        entity.resultBalance == null
+            ? null
+            : Money.fromDecimal(
+                entity.resultBalance,
+                entity.currency,
+            ),
+    };
+  }
+
 }
