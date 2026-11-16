@@ -2078,6 +2078,79 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
     });
 
 
+    it('publishes events in publish_order even with identical timestamps', async () => {
+        const aggregateId = randomUUID();
+        const occurredAt = new Date('2000-01-01T00:00:00.000Z');
+
+        const firstId = await createOutboxMessage(
+            aggregateId,
+            occurredAt,
+        );
+
+        const secondId = await createOutboxMessage(
+            aggregateId,
+            occurredAt,
+        );
+
+        const em = orm.em.fork();
+
+        const firstEntity = await em.findOneOrFail(
+            OutboxMessageEntity,
+            { id: firstId },
+        );
+
+        const secondEntity = await em.findOneOrFail(
+            OutboxMessageEntity,
+            { id: secondId },
+        );
+
+        expect(
+            BigInt(firstEntity.publishOrder!),
+        ).toBeLessThan(
+            BigInt(secondEntity.publishOrder!),
+        );
+
+        const repository = new OutboxRepository(orm.em.fork());
+
+        // Somente o primeiro evento pode ser reivindicado.
+        const firstBatch = await repository.claimPending(
+            100,
+            aggregateId,
+        );
+
+        expect(firstBatch).toHaveLength(1);
+        expect(firstBatch[0].message.id).toBe(firstId);
+
+        // Enquanto o primeiro estiver pendente,
+        // o segundo não deve ser reivindicado.
+        const blockedBatch = await repository.claimPending(
+            100,
+            aggregateId,
+        );
+
+        expect(blockedBatch).toHaveLength(0);
+
+        // Confirma a publicação do primeiro.
+        expect(
+            await repository.confirmPublished(firstBatch[0]),
+        ).toBe(true);
+
+        // Agora o segundo evento pode avançar.
+        const secondBatch = await repository.claimPending(
+            100,
+            aggregateId,
+        );
+
+        expect(secondBatch).toHaveLength(1);
+        expect(secondBatch[0].message.id).toBe(secondId);
+
+        expect(
+            await repository.confirmPublished(secondBatch[0]),
+        ).toBe(true);
+    });
+
+
+
   });
 
 
