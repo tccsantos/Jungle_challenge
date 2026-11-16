@@ -1,0 +1,16 @@
+
+services:
+  localstack:
+    image: localstack/localstack:latest
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:?LocalStack auth token required}
+      SQS_ENDPOINT_STRATEGY: path
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+
+volumes:
+  localstack_data:
