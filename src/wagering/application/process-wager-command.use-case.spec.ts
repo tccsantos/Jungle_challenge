@@ -128,9 +128,20 @@ describe('ProcessWagerCommandUseCase', () => {
 
     expect(markProcessed).toHaveBeenCalledTimes(1);
 
+    
     expect(markProcessed).toHaveBeenCalledWith(
       receive.mock.calls[0][0],
+      expect.anything(),
     );
+
+    const inboxTx = receive.mock.calls[0][1];
+    const financialTx = executeWager.mock.calls[0][1];
+    const confirmationTx = markProcessed.mock.calls[0][1];
+
+    expect(inboxTx).toBeDefined();
+    expect(inboxTx).toBe(financialTx);
+    expect(financialTx).toBe(confirmationTx);
+
   });
 
   it('does not execute a message already processed', async () => {
