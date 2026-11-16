@@ -2038,7 +2038,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         const repository = new OutboxRepository(orm.em.fork());
 
-        const firstBatch = await repository.claimPending(100);
+        const firstBatch = await repository.claimPending(100, aggregateId);
 
         const first = firstBatch.find(
             (item) => item.message.id === firstId,
@@ -2050,7 +2050,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         // O segundo não pode ultrapassá-lo.
         const blockedBatch = await new OutboxRepository(
             orm.em.fork(),
-        ).claimPending(100);
+        ).claimPending(100, aggregateId);
 
         expect(
             blockedBatch.some(
@@ -2064,7 +2064,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         // Somente depois da confirmação do primeiro,
         // o segundo evento torna-se elegível.
-        const secondBatch = await repository.claimPending(100);
+        const secondBatch = await repository.claimPending(100, aggregateId);
 
         const second = secondBatch.find(
             (item) => item.message.id === secondId,
