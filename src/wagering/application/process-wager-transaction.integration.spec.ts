@@ -787,4 +787,112 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
   });
 
 
+  it('prevents two concurrent REFUNDs of the same BET', async () => {
+    const wallet = await createWallet('100.00');
+
+    const bet = betInput(wallet, '40.00');
+
+    const betResult = await createProcessor().execute(bet);
+
+    expect(betResult.status).toBe(WagerTransactionStatus.Processed);
+    expect(betResult.balance.amount).toBe('60.00');
+
+    const refundA = {
+        ...betInput(wallet, '40.00'),
+        kind: WagerTransactionKind.Refund,
+        roundId: bet.roundId,
+        referenceExternalTransactionId: bet.externalTransactionId,
+    };
+
+    const refundB = {
+        ...betInput(wallet, '40.00'),
+        kind: WagerTransactionKind.Refund,
+        roundId: bet.roundId,
+        referenceExternalTransactionId: bet.externalTransactionId,
+    };
+
+    // EntityManagers distintos executam operações concorrentes
+    // contra a mesma carteira no PostgreSQL.
+    const [resultA, resultB] = await Promise.all([
+        createProcessor().execute(refundA),
+        createProcessor().execute(refundB),
+    ]);
+
+    const results = [resultA, resultB];
+
+    expect(
+        results.filter((result) => result.status === WagerTransactionStatus.Processed),
+    ).toHaveLength(1);
+
+    expect(
+        results.filter((result) => result.status === WagerTransactionStatus.Rejected),
+    ).toHaveLength(1);
+
+    const rejected = results.find(
+        (result) => result.status === WagerTransactionStatus.Rejected,
+    );
+
+    expect(rejected?.failureCode).toBe(FailureCode.InvalidReference);
+
+    const em = orm.em.fork();
+
+    const storedWallet = await em.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('100.00');
+    expect(storedWallet.version).toBe(3);
+
+    const refunds = await em.find(
+        WagerTransactionEntity,
+        {
+        wallet: wallet.id,
+        kind: WagerTransactionKind.Refund,
+        },
+    );
+
+    expect(refunds).toHaveLength(2);
+
+    expect(
+        refunds.filter((transaction) =>
+        transaction.status === WagerTransactionStatus.Processed
+        ),
+    ).toHaveLength(1);
+
+    expect(
+        refunds.filter((transaction) =>
+        transaction.status === WagerTransactionStatus.Rejected
+        ),
+    ).toHaveLength(1);
+
+    const ledger = await em.find(
+        WalletLedgerEntryEntity,
+        { wallet: wallet.id },
+    );
+
+    // OPENING = CREDIT
+    // BET = DEBIT
+    // Um único REFUND = CREDIT
+    expect(ledger).toHaveLength(3);
+
+    expect(
+        ledger.filter((entry) =>
+        entry.direction === LedgerDirection.Credit
+        ),
+    ).toHaveLength(2);
+
+    const processedRefund = refunds.find(
+        (transaction) => transaction.status === WagerTransactionStatus.Processed,
+    );
+
+    const refundLedger = ledger.filter(
+        (entry) => entry.transactionId === processedRefund?.id,
+    );
+
+    expect(refundLedger).toHaveLength(1);
+    expect(refundLedger[0].amount).toBe('40.00');
+  });
+
+
 });
