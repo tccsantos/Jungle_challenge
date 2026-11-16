@@ -17,7 +17,7 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_SQS_ENDPOINT: http://localstack:4566
-      SQS_COMMANDS_QUEUE_URL: http://localstack:4566/queue/us-east-1/000000000000/wager-commands.fifo
+      SQS_COMMANDS_QUEUE_URL: http://localstack:4566/queue/us-east-1/000000000000/wager-transactions.fifo
       SQS_EVENTS_QUEUE_URL: http://localstack:4566/queue/us-east-1/000000000000/wager-events.fifo
     depends_on:
       localstack:
