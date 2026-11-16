@@ -7,6 +7,7 @@ interface ReconciliationRow {
   stored_balance: string;
   ledger_balance: string;
   difference: string;
+  is_consistent: boolean;
 }
 
 export interface WalletDiscrepancy {
@@ -57,7 +58,10 @@ export class ReconcileWalletsUseCase {
           (
             w.balance -
             COALESCE(l.calculated_balance, 0)
-          )::text AS difference
+          )::text AS difference,
+          (
+            w.balance = COALESCE(l.calculated_balance, 0)
+          ) AS is_consistent
         FROM wallets w
         LEFT JOIN ledger_totals l
           ON l.wallet_id = w.id
@@ -70,9 +74,7 @@ export class ReconcileWalletsUseCase {
     const discrepancies: WalletDiscrepancy[] = [];
 
     for (const row of rows) {
-      // Compara o NUMERIC calculado pelo PostgreSQL,
-      // sem converter valores monetários para float.
-      if (Number(row.difference) === 0) {
+      if (row.is_consistent) {
         continue;
       }
 
