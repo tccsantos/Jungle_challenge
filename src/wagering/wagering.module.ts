@@ -8,6 +8,7 @@ import { WalletModule } from '../wallet/wallet.module.js';
 import { MessagingModule } from '../messaging/messaging.module.js';
 import { ProcessWagerTransactionUseCase } from './application/process-wager-transaction.use-case.js';
 import { WageringController } from './wagering.controller.js';
+import { RetryPendingReferencesUseCase } from './application/retry-pending-references.use-case.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { WageringController } from './wagering.controller.js';
   providers: [
     WagerTransactionRepository,
     ProcessWagerTransactionUseCase,
+    RetryPendingReferencesUseCase,
   ],
   exports: [
     WagerTransactionRepository,
