@@ -22,8 +22,9 @@ export class WagerCommandConsumerWorker {
   ) {}
 
   @Cron(CronExpression.EVERY_5_SECONDS, {
-    waitForCompletion: true,
-  })
+      waitForCompletion: true,
+    })
+    
   async handleCron(): Promise<void> {
     const queueUrl = process.env.SQS_COMMANDS_QUEUE_URL;
 
@@ -35,47 +36,27 @@ export class WagerCommandConsumerWorker {
     }
 
     try {
-      const message = await this.sqsService.receiveOne(
-        queueUrl,
-      );
+      const message = await this.sqsService.receiveOne(queueUrl);
 
       if (!message) {
         return;
       }
 
+      let result: string;
+
       try {
-        const result = await this.processCommand.execute(
-          message.body,
+        result = await this.processCommand.execute(message.body);
+      } catch (error) {
+        this.logger.error(
+          `Failed to process SQS message ${message.messageId}`,
+          error instanceof Error ? error.stack : String(error),
         );
 
+        // Sem ACK: mensagem fica elegível para reentrega.
+        return;
+      }
 
-        const crashMessageId =
-          process.env.CRASH_AFTER_COMMIT_MESSAGE_ID;
-
-        if (
-          process.env.NODE_ENV !== 'production' &&
-          crashMessageId
-        ) {
-          const envelope: unknown = JSON.parse(message.body);
-
-          if (
-            envelope !== null &&
-            typeof envelope === 'object' &&
-            'messageId' in envelope &&
-            envelope.messageId === crashMessageId
-          ) {
-            this.logger.error(
-              `FAULT INJECTION: crashing after commit ` +
-              `for message ${crashMessageId}`,
-            );
-
-            // Simula encerramento abrupto, sem executar
-            // o ACK e sem graceful shutdown.
-            process.abort();
-          }
-        }
-
-
+      try {
         await this.sqsService.deleteMessage(
           queueUrl,
           message.receiptHandle,
@@ -85,23 +66,20 @@ export class WagerCommandConsumerWorker {
           `SQS message ${message.messageId}: ${result}`,
         );
       } catch (error) {
-        // Não excluímos mensagens cujo processamento falhou.
-        // Após o visibility timeout, o SQS tentará novamente.
-        // Depois do limite configurado, irá para a DLQ.
         this.logger.error(
-          `Failed to process SQS message ${message.messageId}`,
-          error instanceof Error
-            ? error.stack
-            : String(error),
+          `Failed to ACK SQS message ${message.messageId}`,
+          error instanceof Error ? error.stack : String(error),
         );
+
+        // O processamento já pode estar confirmado no banco.
+        // A Inbox impedirá efeitos duplicados na reentrega.
       }
     } catch (error) {
       this.logger.error(
         'Failed to poll SQS commands queue',
-        error instanceof Error
-          ? error.stack
-          : String(error),
+        error instanceof Error ? error.stack : String(error),
       );
     }
   }
+
 }
