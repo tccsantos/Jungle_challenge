@@ -31,6 +31,13 @@ import { CreateWalletUseCase } from '../../wallet/application/create-wallet.use-
 import { ProcessWagerTransactionUseCase } from './process-wager-transaction.use-case.js';
 import { LedgerDirection } from '../../wallet/domain/wallet-ledger-entry.js';
 
+import { RetryPendingReferencesUseCase } from './retry-pending-references.use-case.js';
+
+import {
+  MAX_REFERENCE_RETRY_ATTEMPTS,
+  getReferenceRetryDelayMs,
+} from './reference-retry-policy.js';
+
 describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
   let orm: MikroORM;
 
@@ -64,6 +71,17 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
       new OutboxRepository(em),
     );
   };
+
+  function createRetryProcessor(): RetryPendingReferencesUseCase {
+    const em = orm.em.fork();
+    
+    return new RetryPendingReferencesUseCase(
+        em,
+        new WalletRepository(em),
+        new WagerTransactionRepository(em),
+        new WalletLedgerRepository(em),
+        new OutboxRepository(em),
+    )}
 
   const betInput = (
     wallet: { id: string; playerId: string },
@@ -892,6 +910,566 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
     expect(refundLedger).toHaveLength(1);
     expect(refundLedger[0].amount).toBe('40.00');
+  });
+
+
+  describe('RetryPendingReferencesUseCase', () => {
+    function reversalInput(
+        wallet: Parameters<typeof betInput>[0],
+        amount: string,
+        kind: WagerTransactionKind.Refund | WagerTransactionKind.Rollback,
+        reference: ReturnType<typeof betInput>,
+    ) {
+        return {
+        ...betInput(wallet, amount),
+        kind,
+        roundId: reference.roundId,
+        gameId: reference.gameId,
+        referenceExternalTransactionId:
+            reference.externalTransactionId,
+        };
+    }
+
+    it('processes a pending REFUND after its BET arrives', async () => {
+        const wallet = await createWallet('100.00');
+        const processor = createProcessor();
+
+        const bet = betInput(wallet, '40.00');
+
+        const refund = reversalInput(
+        wallet,
+        '40.00',
+        WagerTransactionKind.Refund,
+        bet,
+        );
+
+        const pending = await processor.execute(refund);
+
+        expect(pending.status).toBe(
+            WagerTransactionStatus.PendingReference,
+        );
+        expect(pending.balance.amount).toBe('100.00');
+
+        const betResult = await processor.execute(bet);
+
+        expect(betResult.status).toBe(
+            WagerTransactionStatus.Processed,
+        );
+        expect(betResult.balance.amount).toBe('60.00');
+
+        const worker = createRetryProcessor();
+
+        const result = await worker.execute();
+
+        expect(result.processed).toBe(1);
+        expect(result.rejected).toBe(0);
+
+        const em = orm.em.fork();
+
+        const transaction = await em.findOneOrFail(
+            WagerTransactionEntity,
+            { id: pending.transactionId },
+        );
+
+        expect(transaction.status).toBe(
+            WagerTransactionStatus.Processed,
+        );
+        expect(transaction.referenceTransaction?.id).toBe(
+            betResult.transactionId,
+        );
+
+        const ledger = await em.find(
+            WalletLedgerEntryEntity,
+            { transactionId: pending.transactionId },
+        );
+
+        expect(ledger).toHaveLength(1);
+        expect(ledger[0].direction).toBe(
+            LedgerDirection.Credit,
+        );
+        expect(ledger[0].amount).toBe('40.00');
+
+        const storedWallet = await em.findOneOrFail(
+            WalletEntity,
+            { id: wallet.id },
+        );
+
+        expect(storedWallet.balance).toBe('100.00');
+        expect(storedWallet.version).toBe(3);
+
+        // Reexecução do worker não altera o saldo.
+        const secondRun = await worker.execute();
+
+        expect(secondRun.processed).toBe(0);
+
+        // Replay HTTP preserva o ID e devolve o novo resultado.
+        const replay = await processor.execute(refund);
+
+        expect(replay.idempotentReplay).toBe(true);
+        expect(replay.transactionId).toBe(pending.transactionId);
+        expect(replay.status).toBe(
+            WagerTransactionStatus.Processed,
+        );
+        expect(replay.balance.amount).toBe('100.00');
+    });
+
+    it('processes a pending ROLLBACK after its WIN arrives', async () => {
+        const wallet = await createWallet('100.00');
+        const processor = createProcessor();
+
+        const win = {
+            ...betInput(wallet, '40.00'),
+            kind: WagerTransactionKind.Win,
+        };
+
+        const rollback = reversalInput(
+            wallet,
+            '40.00',
+            WagerTransactionKind.Rollback,
+            win,
+        );
+
+        const pending = await processor.execute(rollback);
+
+        expect(pending.status).toBe(
+            WagerTransactionStatus.PendingReference,
+        );
+
+        const winResult = await processor.execute(win);
+
+        expect(winResult.balance.amount).toBe('140.00');
+
+        const result = await createRetryProcessor().execute();
+
+        expect(result.processed).toBe(1);
+
+        const em = orm.em.fork();
+
+        const transaction = await em.findOneOrFail(
+            WagerTransactionEntity,
+            { id: pending.transactionId },
+        );
+
+        expect(transaction.status).toBe(
+            WagerTransactionStatus.Processed,
+        );
+        expect(transaction.referenceTransaction?.id).toBe(
+            winResult.transactionId,
+        );
+
+        const ledger = await em.find(
+            WalletLedgerEntryEntity,
+            { transactionId: pending.transactionId },
+        );
+
+        expect(ledger).toHaveLength(1);
+        expect(ledger[0].direction).toBe(
+            LedgerDirection.Debit,
+        );
+        expect(ledger[0].amount).toBe('40.00');
+
+        const storedWallet = await em.findOneOrFail(
+            WalletEntity,
+            { id: wallet.id },
+        );
+
+        expect(storedWallet.balance).toBe('100.00');
+        expect(storedWallet.version).toBe(3);
+    });
+
+    it('reschedules when the reference is still missing', async () => {
+        const wallet = await createWallet('100.00');
+        const processor = createProcessor();
+
+        const missingBet = betInput(wallet, '40.00');
+
+        const refund = reversalInput(
+        wallet,
+        '40.00',
+        WagerTransactionKind.Refund,
+        missingBet,
+        );
+
+        const pending = await processor.execute(refund);
+
+        const before = Date.now();
+
+        const result = await createRetryProcessor().execute();
+
+        const after = Date.now();
+
+        expect(result.rescheduled).toBe(1);
+        expect(result.processed).toBe(0);
+
+        const em = orm.em.fork();
+
+        const transaction = await em.findOneOrFail(
+            WagerTransactionEntity,
+            { id: pending.transactionId },
+        );
+
+        expect(transaction.status).toBe(
+            WagerTransactionStatus.PendingReference,
+        );
+        expect(transaction.referenceRetryAttempts).toBe(1);
+
+        const nextRetryAt = transaction.referenceNextRetryAt;
+
+        expect(nextRetryAt).toBeDefined();
+
+        const expectedDelay = getReferenceRetryDelayMs(1);
+
+        expect(nextRetryAt!.getTime()).toBeGreaterThanOrEqual(
+            before + expectedDelay,
+        );
+        expect(nextRetryAt!.getTime()).toBeLessThanOrEqual(
+            after + expectedDelay,
+        );
+
+        // Ainda não chegou o próximo horário.
+        const secondRun = await createRetryProcessor().execute();
+
+        expect(secondRun.processed).toBe(0);
+        expect(secondRun.rescheduled).toBe(0);
+
+        expect(
+            await em.count(WalletLedgerEntryEntity, {
+                transactionId: pending.transactionId,
+            }),
+        ).toBe(0);
+    });
+
+    it('rejects a pending reference after the retry limit', async () => {
+        const wallet = await createWallet('100.00');
+        const processor = createProcessor();
+
+        const missingBet = betInput(wallet, '40.00');
+
+        const refund = reversalInput(
+            wallet,
+            '40.00',
+            WagerTransactionKind.Refund,
+            missingBet,
+        );
+
+        const pending = await processor.execute(refund);
+
+        const worker = createRetryProcessor();
+
+        for (
+            let attempt = 1;
+            attempt <= MAX_REFERENCE_RETRY_ATTEMPTS;
+            attempt++
+        ) {
+            // Antecipamos o horário usando o banco de testes,
+            // sem esperar vários segundos entre as tentativas.
+            await orm.em.fork().nativeUpdate(
+                WagerTransactionEntity,
+                { id: pending.transactionId },
+                {
+                    referenceNextRetryAt: new Date(
+                        Date.now() - 1000,
+                    ),
+                },
+            );
+
+            const result = await worker.execute();
+
+            if (attempt < MAX_REFERENCE_RETRY_ATTEMPTS) {
+                expect(result.rescheduled).toBe(1);
+            } else {
+                expect(result.rejected).toBe(1);
+            }
+        }
+
+        const em = orm.em.fork();
+
+        const transaction = await em.findOneOrFail(
+            WagerTransactionEntity,
+            { id: pending.transactionId },
+        );
+
+        expect(transaction.status).toBe(
+            WagerTransactionStatus.Rejected,
+        );
+        expect(transaction.failureCode).toBe(
+            FailureCode.ReferenceNotFound,
+        );
+
+        expect(
+            await em.count(WalletLedgerEntryEntity, {
+                transactionId: pending.transactionId,
+            }),
+        ).toBe(0);
+
+        const storedWallet = await em.findOneOrFail(
+            WalletEntity,
+            { id: wallet.id },
+        );
+
+        expect(storedWallet.balance).toBe('100.00');
+
+        const replay = await processor.execute(refund);
+
+        expect(replay.idempotentReplay).toBe(true);
+        expect(replay.status).toBe(
+            WagerTransactionStatus.Rejected,
+        );
+        expect(replay.failureCode).toBe(
+            FailureCode.ReferenceNotFound,
+        );
+    });
+
+    it('rejects a pending REFUND with an incompatible reference', async () => {
+        const wallet = await createWallet('100.00');
+        const processor = createProcessor();
+
+        const win = {
+            ...betInput(wallet, '40.00'),
+            kind: WagerTransactionKind.Win,
+        };
+
+        // REFUND exige referência a uma BET,
+        // não a uma WIN.
+        const refund = reversalInput(
+            wallet,
+            '40.00',
+            WagerTransactionKind.Refund,
+            win,
+        );
+
+        const pending = await processor.execute(refund);
+
+        expect(pending.status).toBe(
+            WagerTransactionStatus.PendingReference,
+        );
+
+        await processor.execute(win);
+
+        const result = await createRetryProcessor().execute();
+
+        expect(result.rejected).toBe(1);
+
+        const em = orm.em.fork();
+
+        const transaction = await em.findOneOrFail(
+            WagerTransactionEntity,
+            { id: pending.transactionId },
+        );
+
+        expect(transaction.status).toBe(
+            WagerTransactionStatus.Rejected,
+        );
+        expect(transaction.failureCode).toBe(
+            FailureCode.InvalidReference,
+        );
+
+        expect(
+            await em.count(WalletLedgerEntryEntity, {
+                transactionId: pending.transactionId,
+            }),
+        ).toBe(0);
+
+        const storedWallet = await em.findOneOrFail(
+            WalletEntity,
+            { id: wallet.id },
+        );
+
+        // Somente a WIN alterou o saldo.
+        expect(storedWallet.balance).toBe('140.00');
+        expect(storedWallet.version).toBe(2);
+    });
+
+    it('rejects a pending REFUND if another REFUND was already processed', async () => {
+        const wallet = await createWallet('100.00');
+        const processor = createProcessor();
+
+        const bet = betInput(wallet, '40.00');
+
+        const pendingRefund = reversalInput(
+            wallet,
+            '40.00',
+            WagerTransactionKind.Refund,
+            bet,
+        );
+
+        const pending = await processor.execute(pendingRefund);
+
+        await processor.execute(bet);
+
+        // Um outro REFUND é processado antes do worker.
+        const immediateRefund = reversalInput(
+            wallet,
+            '40.00',
+            WagerTransactionKind.Refund,
+            bet,
+        );
+
+        const immediate = await processor.execute(immediateRefund);
+
+        expect(immediate.status).toBe(
+            WagerTransactionStatus.Processed,
+        );
+
+        const result = await createRetryProcessor().execute();
+
+        expect(result.rejected).toBe(1);
+
+        const em = orm.em.fork();
+
+        const transaction = await em.findOneOrFail(
+            WagerTransactionEntity,
+            { id: pending.transactionId },
+        );
+
+        expect(transaction.status).toBe(
+            WagerTransactionStatus.Rejected,
+        );
+        expect(transaction.failureCode).toBe(
+            FailureCode.InvalidReference,
+        );
+
+        const storedWallet = await em.findOneOrFail(
+            WalletEntity,
+            { id: wallet.id },
+        );
+
+        expect(storedWallet.balance).toBe('100.00');
+        expect(storedWallet.version).toBe(3);
+
+        expect(
+            await em.count(WalletLedgerEntryEntity, {
+                transactionId: pending.transactionId,
+            }),
+        ).toBe(0);
+    });
+
+    it('rejects a pending ROLLBACK that would overdraw the wallet', async () => {
+        const wallet = await createWallet('100.00');
+        const processor = createProcessor();
+
+        const win = {
+            ...betInput(wallet, '80.00'),
+            kind: WagerTransactionKind.Win,
+        };
+
+        const rollback = reversalInput(
+            wallet,
+            '80.00',
+            WagerTransactionKind.Rollback,
+            win,
+        );
+
+        const pending = await processor.execute(rollback);
+
+        expect(pending.status).toBe(
+            WagerTransactionStatus.PendingReference,
+        );
+
+        const winResult = await processor.execute(win);
+
+        expect(winResult.balance.amount).toBe('180.00');
+
+        const betResult = await processor.execute(
+            betInput(wallet, '150.00'),
+        );
+
+        expect(betResult.balance.amount).toBe('30.00');
+
+        const result = await createRetryProcessor().execute();
+
+        expect(result.rejected).toBe(1);
+
+        const em = orm.em.fork();
+
+        const transaction = await em.findOneOrFail(
+            WagerTransactionEntity,
+            { id: pending.transactionId },
+        );
+
+        expect(transaction.status).toBe(
+            WagerTransactionStatus.Rejected,
+        );
+        expect(transaction.failureCode).toBe(
+            FailureCode.ReversalWouldOverdraw,
+        );
+
+        const storedWallet = await em.findOneOrFail(
+            WalletEntity,
+            { id: wallet.id },
+        );
+
+        expect(storedWallet.balance).toBe('30.00');
+        expect(storedWallet.version).toBe(3);
+
+        expect(
+            await em.count(WalletLedgerEntryEntity, {
+                transactionId: pending.transactionId,
+            }),
+        ).toBe(0);
+    });
+
+    it('allows only one worker to process the same pending REFUND', async () => {
+        const wallet = await createWallet('100.00');
+        const processor = createProcessor();
+
+        const bet = betInput(wallet, '40.00');
+
+        const refund = reversalInput(
+            wallet,
+            '40.00',
+            WagerTransactionKind.Refund,
+            bet,
+        );
+
+        const pending = await processor.execute(refund);
+
+        await processor.execute(bet);
+
+        // Dois workers com EntityManagers independentes.
+        const [first, second] = await Promise.all([
+            createRetryProcessor().execute(),
+            createRetryProcessor().execute(),
+        ]);
+
+        expect(first.processed + second.processed).toBe(1);
+        expect(first.rejected + second.rejected).toBe(0);
+
+        const em = orm.em.fork();
+
+        const transaction = await em.findOneOrFail(
+            WagerTransactionEntity,
+            { id: pending.transactionId },
+        );
+
+        expect(transaction.status).toBe(
+            WagerTransactionStatus.Processed,
+        );
+
+        const walletAfter = await em.findOneOrFail(
+            WalletEntity,
+            { id: wallet.id },
+        );
+
+        expect(walletAfter.balance).toBe('100.00');
+        expect(walletAfter.version).toBe(3);
+
+        const ledger = await em.find(
+            WalletLedgerEntryEntity,
+            { transactionId: pending.transactionId },
+        );
+
+        expect(ledger).toHaveLength(1);
+        expect(ledger[0].direction).toBe(
+            LedgerDirection.Credit,
+        );
+        expect(ledger[0].amount).toBe('40.00');
+
+        // Nenhum processamento adicional.
+        const third = await createRetryProcessor().execute();
+
+        expect(third.processed).toBe(0);
+    });
   });
 
 
