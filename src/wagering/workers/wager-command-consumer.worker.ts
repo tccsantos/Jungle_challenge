@@ -71,7 +71,7 @@ export class WagerCommandConsumerWorker {
 
             // Simula encerramento abrupto, sem executar
             // o ACK e sem graceful shutdown.
-            process.kill(process.pid, 'SIGKILL');
+            process.abort();
           }
         }
 
