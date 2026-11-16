@@ -521,4 +521,132 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
   });
 
 
+  it('refunds a processed BET exactly once', async () => {
+    const wallet = await createWallet('100.00');
+    const processor = createProcessor();
+
+    const bet = betInput(wallet, '40.00');
+
+    const betResult = await processor.execute(bet);
+
+    expect(betResult.status).toBe(WagerTransactionStatus.Processed);
+    expect(betResult.balance.amount).toBe('60.00');
+
+    const refund = {
+        ...betInput(wallet, '40.00'),
+        kind: WagerTransactionKind.Refund,
+        roundId: bet.roundId,
+        referenceExternalTransactionId: bet.externalTransactionId,
+    };
+
+    const refundResult = await processor.execute(refund);
+
+    expect(refundResult.status).toBe(WagerTransactionStatus.Processed);
+    expect(refundResult.balance.amount).toBe('100.00');
+
+    const em = orm.em.fork();
+
+    const transaction = await em.findOneOrFail(
+        WagerTransactionEntity,
+        { id: refundResult.transactionId },
+    );
+
+    expect(transaction.kind).toBe(WagerTransactionKind.Refund);
+    expect(transaction.referenceTransaction?.id).toBe(
+        betResult.transactionId,
+    );
+
+    const ledger = await em.find(
+        WalletLedgerEntryEntity,
+        { transactionId: refundResult.transactionId },
+    );
+
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0].direction).toBe(LedgerDirection.Credit);
+    expect(ledger[0].balanceBefore).toBe('60.00');
+    expect(ledger[0].balanceAfter).toBe('100.00');
+
+    // Outra operação REFUND para a mesma BET.
+    const duplicate = {
+        ...refund,
+        externalTransactionId: `refund-${uniqueId()}`,
+        idempotencyKey: `refund-${uniqueId()}`,
+    };
+
+    const duplicateResult = await processor.execute(duplicate);
+
+    expect(duplicateResult.status).toBe(WagerTransactionStatus.Rejected);
+    expect(duplicateResult.failureCode).toBe(FailureCode.InvalidReference);
+    expect(duplicateResult.balance.amount).toBe('100.00');
+
+    const finalEm = orm.em.fork();
+
+    expect(
+        await finalEm.count(WalletLedgerEntryEntity, {
+        wallet: wallet.id,
+        direction: LedgerDirection.Credit,
+        }),
+    ).toBe(2); // OPENING + primeiro REFUND
+  });
+
+
+  it('rolls back a processed WIN by debiting the wallet', async () => {
+    const wallet = await createWallet('100.00');
+    const processor = createProcessor();
+
+    const win = {
+        ...betInput(wallet, '40.00'),
+        kind: WagerTransactionKind.Win,
+    };
+
+    const winResult = await processor.execute(win);
+
+    expect(winResult.status).toBe(WagerTransactionStatus.Processed);
+    expect(winResult.balance.amount).toBe('140.00');
+
+    const rollback = {
+        ...betInput(wallet, '40.00'),
+        kind: WagerTransactionKind.Rollback,
+        roundId: win.roundId,
+        referenceExternalTransactionId: win.externalTransactionId,
+    };
+
+    const result = await processor.execute(rollback);
+
+    expect(result.status).toBe(WagerTransactionStatus.Processed);
+    expect(result.balance.amount).toBe('100.00');
+
+    const em = orm.em.fork();
+
+    const transaction = await em.findOneOrFail(
+        WagerTransactionEntity,
+        { id: result.transactionId },
+    );
+
+    expect(transaction.kind).toBe(WagerTransactionKind.Rollback);
+    expect(transaction.referenceTransaction?.id).toBe(
+        winResult.transactionId,
+    );
+
+    const ledger = await em.find(
+        WalletLedgerEntryEntity,
+        { transactionId: result.transactionId },
+    );
+
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0].direction).toBe(LedgerDirection.Debit);
+    expect(ledger[0].amount).toBe('40.00');
+    expect(ledger[0].balanceBefore).toBe('140.00');
+    expect(ledger[0].balanceAfter).toBe('100.00');
+
+    const storedWallet = await em.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('100.00');
+    expect(storedWallet.version).toBe(3);
+  });
+
+
 });
