@@ -568,6 +568,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "result_balance": {
+          "name": "result_balance",
+          "type": "numeric(20,2)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": 20,
+          "scale": 2,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "decimal"
+        },
         "round_id": {
           "name": "round_id",
           "type": "varchar(128)",
@@ -663,16 +680,22 @@
           "keyName": "wager_transactions_provider_id_reference_external__48426_index",
           "primary": false,
           "unique": false
-        }
-      ],
-      "checks": [
+        },
         {
-          "name": "wager_transactions_amount_positive",
-          "expression": "amount > 0",
-          "definition": "CHECK ((amount > (0)::numeric))",
-          "columnName": "amount"
+          "columnNames": [
+            "provider_id",
+            "reference_transaction_id",
+            "kind"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "wager_transactions_unique_processed_reversal",
+          "primary": false,
+          "unique": true,
+          "where": "(reference_transaction_id IS NOT NULL) AND ((kind)::text = ANY ((ARRAY['REFUND'::character varying, 'ROLLBACK'::character varying])::text[])) AND ((status)::text = 'PROCESSED'::text)"
         }
       ],
+      "checks": [],
       "triggers": [],
       "foreignKeys": {
         "wager_transactions_reference_transaction_id_foreign": {
@@ -857,18 +880,6 @@
         {
           "columnNames": [
             "wallet_id",
-            "created_at",
-            "id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "keyName": "wallet_ledger_entries_wallet_history_idx",
-          "primary": false,
-          "unique": false
-        },
-        {
-          "columnNames": [
-            "wallet_id",
             "transaction_id"
           ],
           "composite": true,
@@ -1043,14 +1054,7 @@
           "unique": true
         }
       ],
-      "checks": [
-        {
-          "name": "wallets_balance_non_negative",
-          "expression": "balance >= 0",
-          "definition": "CHECK ((balance >= (0)::numeric))",
-          "columnName": "balance"
-        }
-      ],
+      "checks": [],
       "triggers": [],
       "foreignKeys": {},
       "comment": null
