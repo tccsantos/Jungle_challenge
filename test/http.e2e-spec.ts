@@ -13,7 +13,6 @@ import {
 
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
-import { MikroORM } from '@mikro-orm/postgresql';
 import request from 'supertest';
 
 import { AppModule } from '../src/app.module.js';
@@ -29,7 +28,6 @@ import { LedgerDirection } from '../src/wallet/domain/wallet-ledger-entry.js';
 
 describe('HTTP API - E2E', () => {
   let app: INestApplication;
-  let orm: MikroORM;
 
   let walletId: string;
   let transactionId: string;
@@ -76,8 +74,6 @@ describe('HTTP API - E2E', () => {
     app = moduleRef.createNestApplication();
 
     await app.init();
-
-    orm = app.get(MikroORM);
   });
 
   
@@ -151,6 +147,44 @@ describe('HTTP API - E2E', () => {
       amount: '100.00',
       currency: 'BRL',
     });
+  });
+
+  it('reconciles a wallet individually', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`/wallets/${walletId}/reconciliation`)
+      .expect(201);
+
+    expect(response.body).toEqual({
+      walletId,
+      storedBalance: {
+        amount: '100.00',
+        currency: 'BRL',
+      },
+      calculatedBalance: {
+        amount: '100.00',
+        currency: 'BRL',
+      },
+      difference: {
+        amount: '0.00',
+        currency: 'BRL',
+      },
+      consistent: true,
+      checkedEntries: 1,
+    });
+  });
+
+  it('returns 404 when reconciling a nonexistent wallet', async () => {
+    await request(app.getHttpServer())
+      .post(
+        `/wallets/${randomUUID()}/reconciliation`,
+      )
+      .expect(404);
+  });
+
+  it('rejects an invalid wallet ID for reconciliation', async () => {
+    await request(app.getHttpServer())
+      .post('/wallets/invalid-uuid/reconciliation')
+      .expect(400);
   });
 
   it('returns 404 for a nonexistent wallet', async () => {

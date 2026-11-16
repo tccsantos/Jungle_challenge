@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   Query,
   BadRequestException,
+  HttpCode, HttpStatus
 } from '@nestjs/common';
 
 import {
@@ -45,6 +46,21 @@ export class WalletController {
   @Get('reconciliation')
   async reconciliation() {
     return this.reconcileWallets.execute();
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post(':id/reconciliation')
+  async reconcileWallet(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    const result =
+      await this.reconcileWallets.executeForWallet(id);
+
+    if (!result) {
+      throw new NotFoundException('Wallet not found');
+    }
+
+    return result;
   }
 
   @Get(':id')
