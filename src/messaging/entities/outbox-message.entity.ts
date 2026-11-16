@@ -4,16 +4,26 @@ import {
   Index,
   PrimaryKey,
   Property,
+  Unique,
 } from '@mikro-orm/decorators/legacy';
 
 @Entity({ tableName: 'outbox_messages' })
-@Index({
+@Unique({
   name: 'outbox_messages_pending_idx',
   properties: ['publishedAt', 'nextAttemptAt', 'occurredAt'],
 })
 @Index({
   name: 'outbox_messages_lease_idx',
   properties: ['publishedAt', 'leaseUntil', 'nextAttemptAt'],
+})
+@Index({
+  name: 'outbox_messages_publish_order_idx',
+  properties: ['publishOrder'],
+})
+@Index({
+  name: 'outbox_messages_aggregate_order_idx',
+  properties: ['aggregateId', 'publishOrder'],
+  where: { publishedAt: null },
 })
 export class OutboxMessageEntity {
   @PrimaryKey({ columnType: 'uuid' })
@@ -61,5 +71,12 @@ export class OutboxMessageEntity {
     nullable: true,
   })
   leaseUntil?: Date;
+
+  @Property({
+    fieldName: 'publish_order',
+    columnType: 'bigint',
+    autoincrement: true,
+  })
+  publishOrder?: string;
 
 }
