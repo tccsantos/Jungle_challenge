@@ -105,4 +105,11 @@ export class WagerTransactionEntity {
     nullable: true,
   })
   processedAt?: Date;
+
+  @Property({
+    fieldName: 'result_balance',
+    columnType: 'numeric(20, 2)',
+    nullable: true,
+  })
+  resultBalance?: string;
 }
