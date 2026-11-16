@@ -1807,7 +1807,8 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         },
         };
 
-        await em.persistAndFlush(entity);
+        em.persist(entity);
+        await em.flush();
 
         return id;
     }
