@@ -1837,7 +1837,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         const id = await createOutboxMessage(randomUUID());
 
         const repository = new OutboxRepository(orm.em.fork());
-        const claimed = await repository.claimPending(1);
+        const claimed = await repository.claimPending(100);
 
         const item = claimed.find(
         (candidate) => candidate.message.id === id,
@@ -1885,8 +1885,8 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         new OutboxRepository(orm.em.fork());
 
         const [first, second] = await Promise.all([
-        firstRepository.claimPending(1),
-        secondRepository.claimPending(1),
+        firstRepository.claimPending(100),
+        secondRepository.claimPending(100),
         ]);
 
         const claimedCount = [...first, ...second].filter(
@@ -1901,7 +1901,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         const repository = new OutboxRepository(orm.em.fork());
 
-        const initialClaim = await repository.claimPending(1);
+        const initialClaim = await repository.claimPending(100);
 
         const original = initialClaim.find(
         (item) => item.message.id === id,
@@ -1921,7 +1921,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         const recovered = await new OutboxRepository(
         orm.em.fork(),
-        ).claimPending(1);
+        ).claimPending(100);
 
         const reclaimed = recovered.find(
         (item) => item.message.id === id,
@@ -1955,7 +1955,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         const repository = new OutboxRepository(orm.em.fork());
 
-        const firstBatch = await repository.claimPending(1);
+        const firstBatch = await repository.claimPending(100);
         const claimed = firstBatch.find(
             (item) => item.message.id === id,
         );
@@ -1983,7 +1983,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         expect(stored.publishedAt).toBeNull();
 
         // Ainda não chegou a hora da próxima tentativa.
-        const earlyBatch = await repository.claimPending(1);
+        const earlyBatch = await repository.claimPending(100);
 
         expect(
             earlyBatch.some((item) => item.message.id === id),
@@ -1998,7 +1998,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
             },
         );
 
-        const retryBatch = await repository.claimPending(1);
+        const retryBatch = await repository.claimPending(100);
 
         const retried = retryBatch.find(
             (item) => item.message.id === id,
@@ -2037,7 +2037,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         const repository = new OutboxRepository(orm.em.fork());
 
-        const firstBatch = await repository.claimPending(1);
+        const firstBatch = await repository.claimPending(100);
 
         const first = firstBatch.find(
             (item) => item.message.id === firstId,
@@ -2063,7 +2063,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         // Somente depois da confirmação do primeiro,
         // o segundo evento torna-se elegível.
-        const secondBatch = await repository.claimPending(1);
+        const secondBatch = await repository.claimPending(100);
 
         const second = secondBatch.find(
             (item) => item.message.id === secondId,
