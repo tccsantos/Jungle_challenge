@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   beforeAll,
   afterAll,
+  afterEach,
   describe,
   expect,
   it,
@@ -1783,6 +1784,24 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
 
   describe('OutboxRepository - PostgreSQL', () => {
+
+
+    const createdOutboxIds: string[] = [];
+
+    afterEach(async () => {
+    const em = orm.em.fork();
+
+    for (const id of createdOutboxIds) {
+        await em.execute(
+        'DELETE FROM outbox_messages WHERE id = ?::uuid',
+        [id],
+        );
+    }
+
+    createdOutboxIds.length = 0;
+    });
+
+
     async function createOutboxMessage(
         aggregateId: string,
         occurredAt = new Date('2000-01-01T00:00:00.000Z'),
@@ -1809,6 +1828,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         em.persist(entity);
         await em.flush();
+        createdOutboxIds.push(id);
 
         return id;
     }
@@ -1817,7 +1837,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         const id = await createOutboxMessage(randomUUID());
 
         const repository = new OutboxRepository(orm.em.fork());
-        const claimed = await repository.claimPending(100);
+        const claimed = await repository.claimPending(1);
 
         const item = claimed.find(
         (candidate) => candidate.message.id === id,
@@ -1865,8 +1885,8 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         new OutboxRepository(orm.em.fork());
 
         const [first, second] = await Promise.all([
-        firstRepository.claimPending(100),
-        secondRepository.claimPending(100),
+        firstRepository.claimPending(1),
+        secondRepository.claimPending(1),
         ]);
 
         const claimedCount = [...first, ...second].filter(
@@ -1881,7 +1901,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         const repository = new OutboxRepository(orm.em.fork());
 
-        const initialClaim = await repository.claimPending(100);
+        const initialClaim = await repository.claimPending(1);
 
         const original = initialClaim.find(
         (item) => item.message.id === id,
@@ -1901,7 +1921,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         const recovered = await new OutboxRepository(
         orm.em.fork(),
-        ).claimPending(100);
+        ).claimPending(1);
 
         const reclaimed = recovered.find(
         (item) => item.message.id === id,
@@ -1925,6 +1945,139 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         expect(newConfirmation).toBe(true);
     });
+
+
+    it('persists retry and makes the message available again when due', async () => {
+        const id = await createOutboxMessage(
+            randomUUID(),
+            new Date('1990-01-01T00:00:00.000Z'),
+        );
+
+        const repository = new OutboxRepository(orm.em.fork());
+
+        const firstBatch = await repository.claimPending(1);
+        const claimed = firstBatch.find(
+            (item) => item.message.id === id,
+        );
+
+        expect(claimed).toBeDefined();
+
+        const scheduled = await repository.schedulePublishRetry(
+            claimed!,
+        );
+
+        expect(scheduled).toBe(true);
+
+        const stored = await orm.em.fork().findOneOrFail(
+            OutboxMessageEntity,
+            { id },
+        );
+
+        expect(stored.attempts).toBe(1);
+        expect(stored.nextAttemptAt).toBeDefined();
+        expect(stored.nextAttemptAt!.getTime()).toBeGreaterThan(
+            Date.now(),
+        );
+        expect(stored.leaseToken).toBeNull();
+        expect(stored.leaseUntil).toBeNull();
+        expect(stored.publishedAt).toBeNull();
+
+        // Ainda não chegou a hora da próxima tentativa.
+        const earlyBatch = await repository.claimPending(1);
+
+        expect(
+            earlyBatch.some((item) => item.message.id === id),
+        ).toBe(false);
+
+        // Simula a passagem do tempo.
+        await orm.em.fork().nativeUpdate(
+            OutboxMessageEntity,
+            { id },
+            {
+            nextAttemptAt: new Date(Date.now() - 1_000),
+            },
+        );
+
+        const retryBatch = await repository.claimPending(1);
+
+        const retried = retryBatch.find(
+            (item) => item.message.id === id,
+        );
+
+        expect(retried).toBeDefined();
+        expect(retried!.message.attempts).toBe(1);
+
+        expect(
+            await repository.confirmPublished(retried!),
+        ).toBe(true);
+
+        const finalState = await orm.em.fork().findOneOrFail(
+            OutboxMessageEntity,
+            { id },
+        );
+
+        expect(finalState.publishedAt).toBeDefined();
+        expect(finalState.nextAttemptAt).toBeNull();
+        expect(finalState.attempts).toBe(1);
+    });
+
+
+    it('does not claim a later event from the same wallet before the previous one is published', async () => {
+        const aggregateId = randomUUID();
+
+        const firstId = await createOutboxMessage(
+            aggregateId,
+            new Date('1990-01-02T00:00:00.000Z'),
+        );
+
+        const secondId = await createOutboxMessage(
+            aggregateId,
+            new Date('1990-01-02T00:00:01.000Z'),
+        );
+
+        const repository = new OutboxRepository(orm.em.fork());
+
+        const firstBatch = await repository.claimPending(1);
+
+        const first = firstBatch.find(
+            (item) => item.message.id === firstId,
+        );
+
+        expect(first).toBeDefined();
+
+        // O primeiro evento continua reservado e não publicado.
+        // O segundo não pode ultrapassá-lo.
+        const blockedBatch = await new OutboxRepository(
+            orm.em.fork(),
+        ).claimPending(100);
+
+        expect(
+            blockedBatch.some(
+            (item) => item.message.id === secondId,
+            ),
+        ).toBe(false);
+
+        expect(
+            await repository.confirmPublished(first!),
+        ).toBe(true);
+
+        // Somente depois da confirmação do primeiro,
+        // o segundo evento torna-se elegível.
+        const secondBatch = await repository.claimPending(1);
+
+        const second = secondBatch.find(
+            (item) => item.message.id === secondId,
+        );
+
+        expect(second).toBeDefined();
+
+        expect(
+            await repository.confirmPublished(second!),
+        ).toBe(true);
+    });
+
+
+
   });
 
 

@@ -118,10 +118,11 @@ export class OutboxRepository {
     }));
   }
 
+  
   async confirmPublished(
     claimed: ClaimedOutboxMessage,
   ): Promise<boolean> {
-    claimed.message.markPublished(new Date());
+    const publishedAt = new Date();
 
     const rows = await this.em.fork().execute<Array<{ id: string }>>(
       `
@@ -138,20 +139,39 @@ export class OutboxRepository {
         RETURNING id
       `,
       [
-        claimed.message.publishedAt,
+        publishedAt,
         claimed.message.id,
         claimed.leaseToken,
       ],
       'all',
     );
 
-    return rows.length === 1;
+    if (rows.length === 0) {
+      return false;
+    }
+
+    claimed.message.markPublished(publishedAt);
+    return true;
   }
 
   async schedulePublishRetry(
     claimed: ClaimedOutboxMessage,
   ): Promise<boolean> {
-    claimed.message.scheduleRetry(new Date());
+    const now = new Date();
+
+    // Calcula o novo estado sem modificar o objeto original.
+    const updated = OutboxMessage.rehydrate({
+      id: claimed.message.id,
+      aggregateId: claimed.message.aggregateId,
+      eventType: claimed.message.eventType,
+      payload: claimed.message.payload,
+      occurredAt: claimed.message.occurredAt,
+      attempts: claimed.message.attempts,
+      nextAttemptAt: claimed.message.nextAttemptAt,
+      publishedAt: claimed.message.publishedAt,
+    });
+
+    updated.scheduleRetry(now);
 
     const rows = await this.em.fork().execute<Array<{ id: string }>>(
       `
@@ -168,15 +188,21 @@ export class OutboxRepository {
         RETURNING id
       `,
       [
-        claimed.message.attempts,
-        claimed.message.nextAttemptAt,
+        updated.attempts,
+        updated.nextAttemptAt,
         claimed.message.id,
         claimed.leaseToken,
       ],
       'all',
     );
 
-    return rows.length === 1;
+    if (rows.length === 0) {
+      return false;
+    }
+
+    claimed.message.scheduleRetry(now);
+    return true;
   }
+
 
 }
