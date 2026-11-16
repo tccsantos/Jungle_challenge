@@ -328,4 +328,121 @@ describe('HTTP API - E2E', () => {
     expect(response.body.consistent).toBe(true);
     expect(response.body.inconsistentWallets).toBe(0);
   });
+
+  it('paginates ledger using a stable opaque cursor', async () => {
+    // Cria dois débitos além do crédito de abertura.
+    for (const amount of ['10.00', '15.00']) {
+      const externalTransactionId = randomUUID();
+
+      const response = await request(app.getHttpServer())
+        .post('/wagering/transactions')
+        .set(
+          'idempotency-key',
+          `cursor-test:${externalTransactionId}`,
+        )
+        .send({
+          providerId: 'cursor-test',
+          externalTransactionId,
+          playerId,
+          walletId,
+          roundId: 'cursor-round',
+          gameId: 'cursor-game',
+          kind: 'BET',
+          money: {
+            amount,
+            currency: 'BRL',
+          },
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.status).toBe('PROCESSED');
+    }
+
+    const first = await request(app.getHttpServer())
+      .get(`/wallets/${walletId}/ledger`)
+      .query({ limit: 1 })
+      .expect(200);
+
+    expect(first.body.total).toBe(3);
+    expect(first.body.entries).toHaveLength(1);
+    expect(first.body.hasMore).toBe(true);
+    expect(first.body.nextCursor).toEqual(
+      expect.any(String),
+    );
+
+    const second = await request(app.getHttpServer())
+      .get(`/wallets/${walletId}/ledger`)
+      .query({
+        limit: 1,
+        cursor: first.body.nextCursor,
+      })
+      .expect(200);
+
+    expect(second.body.entries).toHaveLength(1);
+    expect(second.body.hasMore).toBe(true);
+
+    const third = await request(app.getHttpServer())
+      .get(`/wallets/${walletId}/ledger`)
+      .query({
+        limit: 1,
+        cursor: second.body.nextCursor,
+      })
+      .expect(200);
+
+    expect(third.body.entries).toHaveLength(1);
+    expect(third.body.hasMore).toBe(false);
+    expect(third.body.nextCursor).toBeNull();
+
+    // Nenhum lançamento pode aparecer em duas páginas.
+    const ids = [
+      first.body.entries[0].id,
+      second.body.entries[0].id,
+      third.body.entries[0].id,
+    ];
+
+    expect(new Set(ids).size).toBe(3);
+
+    const directions = [
+      first.body.entries[0].direction,
+      second.body.entries[0].direction,
+      third.body.entries[0].direction,
+    ];
+
+    expect(
+      directions.filter((d) => d === 'DEBIT'),
+    ).toHaveLength(2);
+
+    expect(
+      directions.filter((d) => d === 'CREDIT'),
+    ).toHaveLength(1);
+
+    // Um cursor de outra carteira deve ser rejeitado.
+    await request(app.getHttpServer())
+      .get(`/wallets/${randomUUID()}/ledger`)
+      .query({
+        limit: 1,
+        cursor: first.body.nextCursor,
+      })
+      .expect(404);
+
+    // Um cursor malformado deve ser rejeitado.
+    await request(app.getHttpServer())
+      .get(`/wallets/${walletId}/ledger`)
+      .query({
+        limit: 1,
+        cursor: 'invalid-cursor',
+      })
+      .expect(400);
+
+    // Não é permitido combinar cursor e offset.
+    await request(app.getHttpServer())
+      .get(`/wallets/${walletId}/ledger`)
+      .query({
+        limit: 1,
+        offset: 0,
+        cursor: first.body.nextCursor,
+      })
+      .expect(400);
+  });
+
 });
