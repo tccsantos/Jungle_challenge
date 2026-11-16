@@ -48,6 +48,34 @@ export class WagerCommandConsumerWorker {
           message.body,
         );
 
+
+        const crashMessageId =
+          process.env.CRASH_AFTER_COMMIT_MESSAGE_ID;
+
+        if (
+          process.env.NODE_ENV !== 'production' &&
+          crashMessageId
+        ) {
+          const envelope: unknown = JSON.parse(message.body);
+
+          if (
+            envelope !== null &&
+            typeof envelope === 'object' &&
+            'messageId' in envelope &&
+            envelope.messageId === crashMessageId
+          ) {
+            this.logger.error(
+              `FAULT INJECTION: crashing after commit ` +
+              `for message ${crashMessageId}`,
+            );
+
+            // Simula encerramento abrupto, sem executar
+            // o ACK e sem graceful shutdown.
+            process.kill(process.pid, 'SIGKILL');
+          }
+        }
+
+
         await this.sqsService.deleteMessage(
           queueUrl,
           message.receiptHandle,
