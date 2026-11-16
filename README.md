@@ -2,7 +2,7 @@
 
 Serviço de processamento financeiro de apostas com **NestJS**, **TypeScript**, **Bun**, **PostgreSQL**, **MikroORM** e **AWS SQS** (em ambiente local, via **LocalStack**). Implementa saldo materializado por wallet, ledger auditável, idempotência persistente e padrões **Transactional Inbox/Outbox**.
 
-> **Status:** implementação de desafio técnico, não sistema de produção. Este documento descreve a versão pública consultada em 16/11/2026. Veja [ARCHITECTURE.md](ARCHITECTURE.md) para garantias, decisões, trade-offs e limitações. Não confunda a aprovação de testes com comprovação automática de todos os cenários distribuídos do enunciado.
+> **Status:** implementação de desafio técnico, não sistema de produção. Este documento descreve a versão pública consultada em 16/11/2026. Veja [ARCHITECTURE.md](ARCHITECTURE.md) para garantias, decisões, trade-offs e limitações.
 
 ## 1. Requisitos
 
