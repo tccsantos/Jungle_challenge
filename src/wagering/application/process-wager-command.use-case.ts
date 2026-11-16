@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
+import { EntityManager } from '@mikro-orm/postgresql';
 
 import {
   InboxRepository,
-} from '../../messaging/repositories/inbox.repository.js';
+} from '../../messaging/repositories/inbox.repository.js';  
 
 import {
   ProcessWagerTransactionUseCase,
@@ -153,6 +154,7 @@ function parseCommand(body: string): WagerCommandEnvelope {
   };
 }
 
+
 @Injectable()
 export class ProcessWagerCommandUseCase {
   private readonly logger = new Logger(
@@ -163,9 +165,11 @@ export class ProcessWagerCommandUseCase {
     private readonly inboxRepository: InboxRepository,
     private readonly processWager:
       ProcessWagerTransactionUseCase,
+    private readonly em: EntityManager,
   ) {}
 
   async execute(body: string): Promise<WagerCommandResult> {
+    // Validamos a mensagem antes de abrir a transação.
     const command = parseCommand(body);
 
     const payloadHash = createHash('sha256')
@@ -178,40 +182,52 @@ export class ProcessWagerCommandUseCase {
       payloadHash,
     };
 
-    const received = await this.inboxRepository.receive(
-      inboxInput,
-    );
+    const result = await this.em.transactional(
+      async (tx): Promise<{
+        outcome: WagerCommandResult;
+        status?: string;
+      }> => {
+        // INSERT e leitura ocorrem no mesmo tx.
+        const received =
+          await this.inboxRepository.receive(inboxInput, tx);
 
-    if (received.alreadyProcessed) {
-      return 'ALREADY_PROCESSED';
-    }
+        if (received.alreadyProcessed) {
+          return { outcome: 'ALREADY_PROCESSED' };
+        }
 
-    const result = await this.processWager.execute(
-      command.data,
-    );
-
-    // PROCESSED, REJECTED e PENDING_REFERENCE são
-    // resultados persistidos da operação financeira.
-    // O retry da referência acontece em outro worker.
-    const confirmed =
-      await this.inboxRepository.markProcessed(inboxInput);
-
-    if (!confirmed) {
-      const latest = await this.inboxRepository.receive(
-        inboxInput,
-      );
-
-      if (!latest.alreadyProcessed) {
-        throw new Error(
-          'Unable to confirm inbox processing',
+        // Wallet, Transaction, Ledger e Outbox usam tx.
+        const wagerResult = await this.processWager.execute(
+          command.data,
+          tx,
         );
-      }
-    }
 
-    this.logger.log(
-      `Wager command ${command.messageId}: ${result.status}`,
+        // Marcação da Inbox antes do COMMIT.
+        const confirmed =
+          await this.inboxRepository.markProcessed(
+            inboxInput,
+            tx,
+          );
+
+        if (!confirmed) {
+          throw new Error(
+            'Unable to confirm inbox processing',
+          );
+        }
+
+        return {
+          outcome: 'PROCESSED',
+          status: wagerResult.status,
+        };
+      },
     );
 
-    return 'PROCESSED';
+    // Só registramos sucesso após o commit.
+    this.logger.log(
+      `Wager command ${command.messageId}: ${
+        result.status ?? result.outcome
+      }`,
+    );
+
+    return result.outcome;
   }
 }

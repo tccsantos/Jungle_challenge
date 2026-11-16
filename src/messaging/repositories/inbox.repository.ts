@@ -35,10 +35,11 @@ export class InboxRepository {
 
   async receive(
     input: ReceiveInboxInput,
+    tx?: EntityManager,
   ): Promise<ReceiveInboxResult> {
     const message = InboxMessage.receive(input);
 
-    const em = this.em.fork();
+    const em = tx ?? this.em.fork();
 
     await em.execute(
       `
@@ -113,8 +114,9 @@ export class InboxRepository {
 
   async markProcessed(
     input: ReceiveInboxInput,
+    tx?: EntityManager,
   ): Promise<boolean> {
-    const rows = await this.em.fork().execute<
+    const rows = await (tx ?? this.em.fork()).execute<
       Array<{ message_id: string }>
     >(
       `

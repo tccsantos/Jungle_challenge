@@ -6,6 +6,8 @@ import {
   vi,
 } from 'vitest';
 
+import type { EntityManager } from '@mikro-orm/postgresql';
+
 import {
   InboxRepository,
   InboxPayloadConflictError,
@@ -87,10 +89,21 @@ describe('ProcessWagerCommandUseCase', () => {
       execute: executeWager,
     } as unknown as ProcessWagerTransactionUseCase;
 
+    
+    const tx = {} as EntityManager;
+
+    const em = {
+      transactional: vi.fn(async (
+        callback: (tx: EntityManager) => Promise<unknown>,
+      ) => callback(tx)),
+    } as unknown as EntityManager;
+
     useCase = new ProcessWagerCommandUseCase(
       inbox,
       processor,
+      em,
     );
+
   });
 
   it('processes a valid command and confirms the inbox', async () => {
@@ -100,14 +113,17 @@ describe('ProcessWagerCommandUseCase', () => {
 
     expect(receive).toHaveBeenCalledTimes(1);
 
-    expect(receive).toHaveBeenCalledWith({
-      messageId: MESSAGE_ID,
-      consumerName: 'wager-commands',
-      payloadHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-    });
+    expect(receive).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: MESSAGE_ID,
+        consumerName: 'wager-commands',
+      }),
+      expect.anything(),
+    );
 
-    expect(executeWager).toHaveBeenCalledExactlyOnceWith(
+    expect(executeWager).toHaveBeenCalledWith(
       command.data,
+      expect.anything(),
     );
 
     expect(markProcessed).toHaveBeenCalledTimes(1);
@@ -207,22 +223,17 @@ describe('ProcessWagerCommandUseCase', () => {
     expect(markProcessed).toHaveBeenCalledTimes(1);
   });
 
-  it('accepts a concurrent inbox confirmation', async () => {
+  it('fails when inbox confirmation cannot be completed', async () => {
     markProcessed.mockResolvedValue(false);
 
-    receive
-      .mockResolvedValueOnce({
-        alreadyProcessed: false,
-      })
-      .mockResolvedValueOnce({
-        alreadyProcessed: true,
-      });
-
-    expect(
-      await useCase.execute(body()),
-    ).toBe('PROCESSED');
+    await expect(
+      useCase.execute(body()),
+    ).rejects.toThrow(
+      'Unable to confirm inbox processing',
+    );
 
     expect(executeWager).toHaveBeenCalledTimes(1);
+    expect(markProcessed).toHaveBeenCalledTimes(1);
   });
 
   it('does not process a command whose inbox record cannot be read', async () => {

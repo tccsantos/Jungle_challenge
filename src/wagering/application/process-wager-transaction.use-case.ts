@@ -65,6 +65,7 @@ export class ProcessWagerTransactionUseCase {
 
   async execute(
     input: ProcessWagerInput,
+    tx?: EntityManager,
   ): Promise<ProcessWagerOutput> {
     const supportedKinds: WagerTransactionKind[] = [
       WagerTransactionKind.Bet,
@@ -172,7 +173,9 @@ export class ProcessWagerTransactionUseCase {
 
     const payloadHash = createWagerPayloadHash(normalizedInput);
 
-    return this.em.transactional(async (tx) => {
+    const process = async (
+      tx: EntityManager,
+    ): Promise<ProcessWagerOutput> => {
       const wallet =
         await this.walletRepository.findByIdForUpdate(
           input.walletId,
@@ -483,6 +486,10 @@ export class ProcessWagerTransactionUseCase {
       }
 
       return output();
-    });
+    };
+    
+    return tx
+      ? process(tx)
+      : this.em.transactional(process);
   }
 }
