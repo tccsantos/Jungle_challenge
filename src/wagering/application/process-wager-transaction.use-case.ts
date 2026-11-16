@@ -65,9 +65,18 @@ export class ProcessWagerTransactionUseCase {
   async execute(
     input: ProcessWagerInput,
   ): Promise<ProcessWagerOutput> {
-    if (!input || input.kind !== WagerTransactionKind.Bet) {
+    const supportedKinds = [
+      WagerTransactionKind.Bet,
+      WagerTransactionKind.Win,
+      WagerTransactionKind.Loss,
+    ];
+
+    if (
+      !input ||
+      !supportedKinds.includes(input.kind as WagerTransactionKind)
+    ) {
       throw new BadRequestException(
-        'Only BET is supported at this stage',
+        'Unsupported transaction kind',
       );
     }
 
@@ -131,7 +140,7 @@ export class ProcessWagerTransactionUseCase {
       playerId: input.playerId,
       roundId: input.roundId,
       gameId: input.gameId,
-      kind: WagerTransactionKind.Bet,
+      kind: input.kind,
       money: {
         amount: money.toDecimalString(),
         currency: money.currency,
@@ -218,7 +227,7 @@ export class ProcessWagerTransactionUseCase {
         playerId: wallet.playerId,
         roundId: input.roundId,
         gameId: input.gameId,
-        kind: WagerTransactionKind.Bet,
+        kind: input.kind as WagerTransactionKind,
         money,
       });
 
@@ -241,53 +250,84 @@ export class ProcessWagerTransactionUseCase {
       };
 
       try {
-        const change = wallet.debit(money);
+        if (transaction.kind === WagerTransactionKind.Loss) {
+          transaction.markProcessed(occurredAt);
 
-        transaction.markProcessed(occurredAt);
+          await this.transactionRepository.create(
+            transaction,
+            tx,
+            wallet.balance,
+          );
 
-        const ledgerEntry = WalletLedgerEntry.create({
-          walletId: wallet.id,
-          transactionId: transaction.id,
-          direction: LedgerDirection.Debit,
-          money,
-          balanceBefore: change.balanceBefore,
-          balanceAfter: change.balanceAfter,
-        });
-
-        await this.walletRepository.save(wallet, tx);
-
-        await this.transactionRepository.create(
-          transaction,
-          tx,
-          wallet.balance,
-        );
-
-        await this.ledgerRepository.create(ledgerEntry, tx);
-
-        const processedEvent = new WagerTransactionProcessed({
-          eventId: randomUUID(),
-          aggregateId: wallet.id,
-          correlationId,
-          occurredAt,
-          data: eventData,
-        });
-
-        const balanceEvent = WalletBalanceChanged.from(
-          wallet,
-          ledgerEntry,
-          {
+          const processedEvent = new WagerTransactionProcessed({
             eventId: randomUUID(),
+            aggregateId: wallet.id,
             correlationId,
-            causationId: processedEvent.eventId,
             occurredAt,
-          },
-        );
+            data: eventData,
+          });
 
-        for (const event of [processedEvent, balanceEvent]) {
           await this.outboxRepository.create(
-            OutboxMessage.enqueue(event),
+            OutboxMessage.enqueue(processedEvent),
             tx,
           );
+        } else {
+          const change =
+            transaction.kind === WagerTransactionKind.Bet
+              ? wallet.debit(money)
+              : wallet.credit(money);
+
+          const direction =
+            transaction.kind === WagerTransactionKind.Bet
+              ? LedgerDirection.Debit
+              : LedgerDirection.Credit;
+
+          transaction.markProcessed(occurredAt);
+
+          const ledgerEntry = WalletLedgerEntry.create({
+            walletId: wallet.id,
+            transactionId: transaction.id,
+            direction,
+            money,
+            balanceBefore: change.balanceBefore,
+            balanceAfter: change.balanceAfter,
+          });
+
+          await this.walletRepository.save(wallet, tx);
+
+          await this.transactionRepository.create(
+            transaction,
+            tx,
+            wallet.balance,
+          );
+
+          await this.ledgerRepository.create(ledgerEntry, tx);
+
+          const processedEvent = new WagerTransactionProcessed({
+            eventId: randomUUID(),
+            aggregateId: wallet.id,
+            correlationId,
+            occurredAt,
+            data: eventData,
+          });
+
+          const balanceEvent = WalletBalanceChanged.from(
+            wallet,
+            ledgerEntry,
+            {
+              eventId: randomUUID(),
+              correlationId,
+              causationId: processedEvent.eventId,
+              occurredAt,
+            },
+          );
+
+          for (const event of [processedEvent, balanceEvent]) {
+            await this.outboxRepository.create(
+              OutboxMessage.enqueue(event),
+              tx,
+            );
+          }
         }
       } catch (error) {
         // Somente a regra de saldo insuficiente é uma
