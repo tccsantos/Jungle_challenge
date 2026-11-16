@@ -12,6 +12,10 @@ import { RetryPendingReferencesUseCase } from './application/retry-pending-refer
 
 import { PendingReferenceWorker } from './workers/pending-reference.worker.js';
 
+import { ProcessWagerCommandUseCase } from './application/process-wager-command.use-case.js';
+import { WagerCommandConsumerWorker } from './workers/wager-command-consumer.worker.js';
+
+
 @Module({
   imports: [
     MikroOrmModule.forFeature([WagerTransactionEntity]),
@@ -24,6 +28,8 @@ import { PendingReferenceWorker } from './workers/pending-reference.worker.js';
     ProcessWagerTransactionUseCase,
     RetryPendingReferencesUseCase,
     PendingReferenceWorker,
+    ProcessWagerCommandUseCase,
+    WagerCommandConsumerWorker,
   ],
   exports: [
     WagerTransactionRepository,

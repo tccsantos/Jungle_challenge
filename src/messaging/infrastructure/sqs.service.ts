@@ -6,6 +6,8 @@ import {
 import {
   SQSClient,
   SendMessageCommand,
+  ReceiveMessageCommand,
+  DeleteMessageCommand,
 } from '@aws-sdk/client-sqs';
 
 export interface SendFifoMessageInput {
@@ -13,6 +15,12 @@ export interface SendFifoMessageInput {
   body: Record<string, unknown>;
   groupId: string;
   deduplicationId: string;
+}
+
+export interface ReceivedSqsMessage {
+  messageId: string;
+  body: string;
+  receiptHandle: string;
 }
 
 @Injectable()
@@ -73,4 +81,59 @@ export class SqsService implements OnModuleDestroy {
   onModuleDestroy(): void {
     this.client.destroy();
   }
+
+
+  async receiveOne(
+    queueUrl: string,
+  ): Promise<ReceivedSqsMessage | undefined> {
+    if (!queueUrl) {
+      throw new Error('SQS queue URL is required');
+    }
+
+    const response = await this.client.send(
+      new ReceiveMessageCommand({
+        QueueUrl: queueUrl,
+        MaxNumberOfMessages: 1,
+        WaitTimeSeconds: 10,
+        VisibilityTimeout: 60,
+      }),
+    );
+
+    const message = response.Messages?.[0];
+
+    if (!message) {
+      return undefined;
+    }
+
+    if (
+      !message.MessageId ||
+      message.Body === undefined ||
+      !message.ReceiptHandle
+    ) {
+      throw new Error('Incomplete SQS message');
+    }
+
+    return {
+      messageId: message.MessageId,
+      body: message.Body,
+      receiptHandle: message.ReceiptHandle,
+    };
+  }
+
+  async deleteMessage(
+    queueUrl: string,
+    receiptHandle: string,
+  ): Promise<void> {
+    if (!queueUrl || !receiptHandle) {
+      throw new Error('Invalid SQS deletion parameters');
+    }
+
+    await this.client.send(
+      new DeleteMessageCommand({
+        QueueUrl: queueUrl,
+        ReceiptHandle: receiptHandle,
+      }),
+    );
+  }
+
 }
