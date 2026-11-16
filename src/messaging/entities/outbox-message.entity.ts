@@ -8,7 +8,7 @@ import {
 } from '@mikro-orm/decorators/legacy';
 
 @Entity({ tableName: 'outbox_messages' })
-@Unique({
+@Index({
   name: 'outbox_messages_pending_idx',
   properties: ['publishedAt', 'nextAttemptAt', 'occurredAt'],
 })
@@ -16,7 +16,7 @@ import {
   name: 'outbox_messages_lease_idx',
   properties: ['publishedAt', 'leaseUntil', 'nextAttemptAt'],
 })
-@Index({
+@Unique({
   name: 'outbox_messages_publish_order_idx',
   properties: ['publishOrder'],
 })
