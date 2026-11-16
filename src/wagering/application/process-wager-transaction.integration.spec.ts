@@ -1860,10 +1860,10 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         expect(stored.leaseToken).toBeNull();
         expect(stored.leaseUntil).toBeNull();
 
-        // Não pode confirmar duas vezes.
-        await expect(
-        repository.confirmPublished(item!),
-        ).rejects.toThrow();
+        // Uma segunda confirmação não deve alterar o evento.
+        expect(
+        await repository.confirmPublished(item!),
+        ).toBe(false);
 
         const finalCheck = orm.em.fork();
 
@@ -2075,7 +2075,6 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
             await repository.confirmPublished(second!),
         ).toBe(true);
     });
-
 
 
   });
