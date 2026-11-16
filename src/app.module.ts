@@ -15,7 +15,10 @@ import { WagerTransactionEntity } from './wagering/entities/wager-transaction.en
 import { InboxMessageEntity } from './messaging/entities/inbox-message.entity.js';
 import { OutboxMessageEntity } from './messaging/entities/outbox-message.entity.js';
 
-import { HealthController } from './observability/health.controller.js';
+import {
+  HealthController,
+  PublicHealthController,
+} from './observability/health.controller.js';
 import { MessagingModule } from './messaging/messaging.module.js';
 
 @Module({
@@ -39,6 +42,7 @@ import { MessagingModule } from './messaging/messaging.module.js';
   controllers: [
     AppController,
     HealthController,
+    PublicHealthController,
   ],
   providers: [AppService],
 })

@@ -445,4 +445,58 @@ describe('HTTP API - E2E', () => {
       .expect(400);
   });
 
+  it('returns liveness without checking dependencies', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/health/live')
+      .expect(200);
+
+    expect(response.body.status).toBe('ok');
+    expect(response.body.timestamp).toBeDefined();
+  });
+
+  it('returns readiness when PostgreSQL and SQS are available', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/health/ready')
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      status: 'ready',
+      database: 'connected',
+      sqs: 'connected',
+    });
+  });
+
+  it('returns 503 on readiness failure while remaining live', async () => {
+    const sqs = app.get(SqsService);
+
+    const spy = vi.spyOn(sqs, 'getQueueStats')
+      .mockRejectedValue(
+        new Error('Simulated SQS outage'),
+      );
+
+    try {
+      const readiness = await request(
+        app.getHttpServer(),
+      )
+        .get('/health/ready')
+        .expect(503);
+
+      expect(readiness.body).toMatchObject({
+        status: 'not_ready',
+        reason: 'dependency_check_failed',
+      });
+
+      const liveness = await request(
+        app.getHttpServer(),
+      )
+        .get('/health/live')
+        .expect(200);
+
+      expect(liveness.body.status).toBe('ok');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+
 });

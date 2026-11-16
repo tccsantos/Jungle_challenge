@@ -5,8 +5,8 @@ import {
 } from '@nestjs/common';
 
 import { EntityManager } from '@mikro-orm/postgresql';
-import { SqsService } from '../messaging/infrastructure/sqs.service.js';
 
+import { SqsService } from '../messaging/infrastructure/sqs.service.js';
 
 interface OutboxStats {
   pending: number;
@@ -15,6 +15,68 @@ interface OutboxStats {
   failed_attempts: number;
 }
 
+/**
+ * Health checks públicos.
+ *
+ * Liveness não consulta serviços externos.
+ * Readiness verifica PostgreSQL e SQS.
+ */
+@Controller('health')
+export class PublicHealthController {
+  constructor(
+    private readonly em: EntityManager,
+    private readonly sqs: SqsService,
+  ) {}
+
+  @Get('live')
+  live() {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  @Get('ready')
+  async ready() {
+    const commandQueueUrl =
+      process.env.SQS_COMMANDS_QUEUE_URL;
+
+    const eventsQueueUrl =
+      process.env.SQS_EVENTS_QUEUE_URL;
+
+    if (!commandQueueUrl || !eventsQueueUrl) {
+      throw new ServiceUnavailableException({
+        status: 'not_ready',
+        reason: 'queue_configuration_unavailable',
+      });
+    }
+
+    try {
+      await this.em.fork().execute('SELECT 1');
+
+      await Promise.all([
+        this.sqs.getQueueStats(commandQueueUrl),
+        this.sqs.getQueueStats(eventsQueueUrl),
+      ]);
+
+      return {
+        status: 'ready',
+        database: 'connected',
+        sqs: 'connected',
+        timestamp: new Date().toISOString(),
+      };
+    } catch {
+      throw new ServiceUnavailableException({
+        status: 'not_ready',
+        reason: 'dependency_check_failed',
+      });
+    }
+  }
+}
+
+/**
+ * Diagnóstico operacional detalhado.
+ */
 @Controller('internal/health')
 export class HealthController {
   constructor(
@@ -31,33 +93,31 @@ export class HealthController {
 
       const rows = await em.execute<OutboxStats[]>(
         `
-        SELECT
-          COUNT(*) FILTER (
-            WHERE published_at IS NULL
-          )::int AS pending,
+          SELECT
+            COUNT(*) FILTER (
+              WHERE published_at IS NULL
+            )::int AS pending,
 
-          COUNT(*) FILTER (
-            WHERE published_at IS NULL
-              AND next_attempt_at > NOW()
-          )::int AS waiting_retry,
+            COUNT(*) FILTER (
+              WHERE published_at IS NULL
+                AND next_attempt_at > NOW()
+            )::int AS waiting_retry,
 
-          COUNT(*) FILTER (
-            WHERE published_at IS NULL
-              AND lease_until > NOW()
-          )::int AS active_leases,
+            COUNT(*) FILTER (
+              WHERE published_at IS NULL
+                AND lease_until > NOW()
+            )::int AS active_leases,
 
-          COUNT(*) FILTER (
-            WHERE published_at IS NULL
-              AND attempts > 0
-          )::int AS failed_attempts
+            COUNT(*) FILTER (
+              WHERE published_at IS NULL
+                AND attempts > 0
+            )::int AS failed_attempts
 
-        FROM outbox_messages
+          FROM outbox_messages
         `,
         [],
         'all',
       );
-
-      const stats = rows[0];
 
       const commandQueueUrl =
         process.env.SQS_COMMANDS_QUEUE_URL;
@@ -66,13 +126,15 @@ export class HealthController {
         process.env.SQS_EVENTS_QUEUE_URL;
 
       if (!commandQueueUrl || !eventsQueueUrl) {
-        throw new Error('SQS queue URLs are not configured');
+        throw new Error('SQS queue URLs not configured');
       }
 
       const [commands, events] = await Promise.all([
         this.sqs.getQueueStats(commandQueueUrl),
         this.sqs.getQueueStats(eventsQueueUrl),
       ]);
+
+      const stats = rows[0];
 
       return {
         status: 'ok',
@@ -93,7 +155,7 @@ export class HealthController {
     } catch {
       throw new ServiceUnavailableException({
         status: 'unavailable',
-        database: 'unavailable',
+        reason: 'dependency_check_failed',
       });
     }
   }
