@@ -221,4 +221,171 @@ describe('Wager command atomicity - PostgreSQL', () => {
       ),
     ).toBe(2);
   });
+
+  it('processes the new SQS envelope exactly once with PostgreSQL', async () => {
+    // 1. Criar uma carteira exclusiva para este teste.
+    const walletEm = orm.em.fork();
+
+    const createWallet = new CreateWalletUseCase(
+      walletEm,
+      new WalletRepository(walletEm),
+    );
+
+    const wallet = await createWallet.execute({
+      playerId: `sqs-contract-${randomUUID()}`,
+      initialBalance: {
+        amount: '100.00',
+        currency: 'BRL',
+      },
+    });
+
+    // 2. Preparar o caso de uso com repositórios reais.
+    const txEm = orm.em.fork();
+
+    const inbox = new InboxRepository(txEm);
+
+    const processor = new ProcessWagerTransactionUseCase(
+      txEm,
+      new WalletRepository(txEm),
+      new WagerTransactionRepository(txEm),
+      new WalletLedgerRepository(txEm),
+      new OutboxRepository(txEm),
+    );
+
+    const commandProcessor = new ProcessWagerCommandUseCase(
+      inbox,
+      processor,
+      txEm,
+    );
+
+    const messageId = randomUUID();
+    const externalTransactionId = randomUUID();
+
+    // 3. Utilizar o novo envelope exigido pelo desafio.
+    const body = JSON.stringify({
+      messageId,
+      type: 'WagerTransactionRequested',
+      occurredAt: new Date().toISOString(),
+      data: {
+        providerId: 'sqs-contract-test',
+        externalTransactionId,
+        idempotencyKey: `sqs-contract:${externalTransactionId}`,
+        playerId: wallet.playerId,
+        walletId: wallet.id,
+        roundId: 'sqs-contract-round',
+        gameId: 'sqs-contract-game',
+        kind: WagerTransactionKind.Bet,
+        money: {
+          amount: '40.00',
+          currency: 'BRL',
+        },
+      },
+    });
+
+    // Registrar o estado inicial da Outbox.
+    const initialOutboxCount = await orm.em.fork().count(
+      OutboxMessageEntity,
+      { aggregateId: wallet.id },
+    );
+
+    // 4. Primeira entrega: processar a BET.
+    const firstResult = await commandProcessor.execute(body);
+
+    expect(firstResult).toBe('PROCESSED');
+
+    // Utilizar um EntityManager novo para ler o estado
+    // efetivamente persistido no PostgreSQL.
+    const firstCheck = orm.em.fork();
+
+    const firstWallet = await firstCheck.findOneOrFail(
+      WalletEntity,
+      { id: wallet.id },
+    );
+
+    expect(firstWallet.balance).toBe('60.00');
+    expect(firstWallet.version).toBe(2);
+
+    // A transação deve existir exatamente uma vez.
+    expect(
+      await firstCheck.count(WagerTransactionEntity, {
+        providerId: 'sqs-contract-test',
+        externalTransactionId,
+      }),
+    ).toBe(1);
+
+    // A Inbox deve estar confirmada.
+    expect(
+      await firstCheck.count(InboxMessageEntity, {
+        consumerName: 'wager-commands',
+        messageId,
+        processedAt: { $ne: null },
+      }),
+    ).toBe(1);
+
+    // Um crédito inicial e um débito da BET.
+    const firstLedger = await firstCheck.find(
+      WalletLedgerEntryEntity,
+      { wallet: wallet.id },
+    );
+
+    expect(firstLedger).toHaveLength(2);
+
+    expect(
+      firstLedger.filter(
+        (entry) => entry.amount === '40.00',
+      ),
+    ).toHaveLength(1);
+
+    // O processamento da BET deve acrescentar
+    // somente um evento à Outbox.
+    expect(
+      await firstCheck.count(OutboxMessageEntity, {
+        aggregateId: wallet.id,
+      }),
+    ).toBe(initialOutboxCount + 1);
+
+    // 5. Simular reentrega da mesma mensagem SQS.
+    // O corpo deve permanecer exatamente igual.
+    const secondResult = await commandProcessor.execute(body);
+
+    expect(secondResult).toBe('ALREADY_PROCESSED');
+
+    // 6. Conferir novamente o PostgreSQL.
+    const finalCheck = orm.em.fork();
+
+    const finalWallet = await finalCheck.findOneOrFail(
+      WalletEntity,
+      { id: wallet.id },
+    );
+
+    expect(finalWallet.balance).toBe('60.00');
+    expect(finalWallet.version).toBe(2);
+
+    expect(
+      await finalCheck.count(WagerTransactionEntity, {
+        providerId: 'sqs-contract-test',
+        externalTransactionId,
+      }),
+    ).toBe(1);
+
+    expect(
+      await finalCheck.count(InboxMessageEntity, {
+        consumerName: 'wager-commands',
+        messageId,
+      }),
+    ).toBe(1);
+
+    expect(
+      await finalCheck.count(WalletLedgerEntryEntity, {
+        wallet: wallet.id,
+      }),
+    ).toBe(2);
+
+    expect(
+      await finalCheck.count(OutboxMessageEntity, {
+        aggregateId: wallet.id,
+      }),
+    ).toBe(initialOutboxCount + 1);
+  });
+
 });
