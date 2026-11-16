@@ -5,6 +5,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 
 import { MikroORM } from '@mikro-orm/postgresql';
@@ -1477,6 +1478,211 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
         expect(third.processed).toBe(0);
     });
+  });
+  
+
+  it('rolls back a REFUND when ledger persistence fails', async () => {
+    const wallet = await createWallet('100.00');
+
+    const bet = betInput(wallet, '40.00');
+    const betResult = await createProcessor().execute(bet);
+
+    expect(betResult.status).toBe(
+        WagerTransactionStatus.Processed,
+    );
+    expect(betResult.balance.amount).toBe('60.00');
+
+    const refund = {
+        ...betInput(wallet, '40.00'),
+        kind: WagerTransactionKind.Refund,
+        roundId: bet.roundId,
+        gameId: bet.gameId,
+        referenceExternalTransactionId:
+        bet.externalTransactionId,
+    };
+
+    const em = orm.em.fork();
+
+    const walletRepository = new WalletRepository(em);
+    const transactionRepository = new WagerTransactionRepository(em);
+    const ledgerRepository = new WalletLedgerRepository(em);
+    const outboxRepository = new OutboxRepository(em);
+
+    vi.spyOn(ledgerRepository, 'create').mockRejectedValueOnce(
+        new Error('Simulated ledger persistence failure'),
+    );
+
+    const processor = new ProcessWagerTransactionUseCase(
+        em,
+        walletRepository,
+        transactionRepository,
+        ledgerRepository,
+        outboxRepository,
+    );
+
+    await expect(
+        processor.execute(refund),
+    ).rejects.toThrow('Simulated ledger persistence failure');
+
+    // Consultar usando um EntityManager novo para verificar
+    // o estado realmente persistido após o rollback.
+    const check = orm.em.fork();
+
+    const storedWallet = await check.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('60.00');
+    expect(storedWallet.version).toBe(2);
+
+    const storedRefund = await check.findOne(
+        WagerTransactionEntity,
+        {
+        providerId: refund.providerId,
+        externalTransactionId: refund.externalTransactionId,
+        },
+    );
+
+    expect(storedRefund).toBeNull();
+
+    // A ausência da transação confirma que a operação
+    // pode ser recebida novamente com a mesma identidade.
+    const retry = await createProcessor().execute(refund);
+
+    expect(retry.status).toBe(
+        WagerTransactionStatus.Processed,
+    );
+    expect(retry.balance.amount).toBe('100.00');
+
+    const finalCheck = orm.em.fork();
+
+    expect(
+        await finalCheck.count(WalletLedgerEntryEntity, {
+        transactionId: retry.transactionId,
+        }),
+    ).toBe(1);
+
+    const finalWallet = await finalCheck.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(finalWallet.balance).toBe('100.00');
+    expect(finalWallet.version).toBe(3);
+    });
+
+    it('rolls back a REFUND when outbox persistence fails', async () => {
+    const wallet = await createWallet('100.00');
+
+    const bet = betInput(wallet, '40.00');
+    const betResult = await createProcessor().execute(bet);
+
+    expect(betResult.status).toBe(
+        WagerTransactionStatus.Processed,
+    );
+
+    const refund = {
+        ...betInput(wallet, '40.00'),
+        kind: WagerTransactionKind.Refund,
+        roundId: bet.roundId,
+        gameId: bet.gameId,
+        referenceExternalTransactionId:
+        bet.externalTransactionId,
+    };
+
+    const em = orm.em.fork();
+
+    const walletRepository = new WalletRepository(em);
+    const transactionRepository = new WagerTransactionRepository(em);
+    const ledgerRepository = new WalletLedgerRepository(em);
+    const outboxRepository = new OutboxRepository(em);
+
+    const originalCreate =
+        outboxRepository.create.bind(outboxRepository);
+
+    let calls = 0;
+
+    // A primeira chamada registra WagerTransactionProcessed.
+    // A segunda, WalletBalanceChanged, falhará.
+    vi.spyOn(outboxRepository, 'create').mockImplementation(
+        async (...args) => {
+        calls++;
+
+        if (calls === 2) {
+            throw new Error(
+            'Simulated outbox persistence failure',
+            );
+        }
+
+        return originalCreate(...args);
+        },
+    );
+
+    const processor = new ProcessWagerTransactionUseCase(
+        em,
+        walletRepository,
+        transactionRepository,
+        ledgerRepository,
+        outboxRepository,
+    );
+
+    await expect(
+        processor.execute(refund),
+    ).rejects.toThrow(
+        'Simulated outbox persistence failure',
+    );
+
+    expect(calls).toBe(2);
+
+    const check = orm.em.fork();
+
+    const storedWallet = await check.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('60.00');
+    expect(storedWallet.version).toBe(2);
+
+    const storedRefund = await check.findOne(
+        WagerTransactionEntity,
+        {
+        providerId: refund.providerId,
+        externalTransactionId: refund.externalTransactionId,
+        },
+    );
+
+    expect(storedRefund).toBeNull();
+
+    // Nenhum REFUND ficou persistido.
+    // Reenviar a mesma operação deve funcionar normalmente.
+    const retry = await createProcessor().execute(refund);
+
+    expect(retry.status).toBe(
+        WagerTransactionStatus.Processed,
+    );
+    expect(retry.balance.amount).toBe('100.00');
+
+    const finalCheck = orm.em.fork();
+
+    const ledger = await finalCheck.find(
+        WalletLedgerEntryEntity,
+        { transactionId: retry.transactionId },
+    );
+
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0].direction).toBe(
+        LedgerDirection.Credit,
+    );
+
+    const finalWallet = await finalCheck.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(finalWallet.balance).toBe('100.00');
+    expect(finalWallet.version).toBe(3);
   });
 
 
