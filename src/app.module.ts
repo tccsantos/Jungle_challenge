@@ -15,6 +15,8 @@ import { WagerTransactionEntity } from './wagering/entities/wager-transaction.en
 import { InboxMessageEntity } from './messaging/entities/inbox-message.entity.js';
 import { OutboxMessageEntity } from './messaging/entities/outbox-message.entity.js';
 
+import { HealthController } from './observability/health.controller.js';
+
 @Module({
   imports: [
     MikroOrmModule.forRoot({
@@ -32,7 +34,10 @@ import { OutboxMessageEntity } from './messaging/entities/outbox-message.entity.
     WalletModule,
     WageringModule,
   ],
-  controllers: [AppController],
+  controllers: [
+    AppController,
+    HealthController,
+  ],
   providers: [AppService],
 })
 export class AppModule {}
