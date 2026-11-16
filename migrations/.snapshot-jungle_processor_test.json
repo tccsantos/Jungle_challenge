@@ -1039,7 +1039,18 @@
         }
       ],
       "checks": [],
-      "triggers": [],
+      "triggers": [
+        {
+          "name": "wallet_ledger_immutable_rows",
+          "timing": "before",
+          "events": [
+            "delete",
+            "update"
+          ],
+          "forEach": "row",
+          "body": ""
+        }
+      ],
       "foreignKeys": {
         "wallet_ledger_entries_wallet_id_foreign": {
           "columnNames": [
