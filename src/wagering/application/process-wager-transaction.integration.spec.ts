@@ -397,4 +397,128 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
   });
 
 
+  it('processes WIN with credit, ledger and outbox events', async () => {
+    const wallet = await createWallet('100.00');
+    const processor = createProcessor();
+
+    const input = {
+        ...betInput(wallet, '50.00'),
+        kind: WagerTransactionKind.Win,
+    };
+
+    const result = await processor.execute(input);
+
+    expect(result.status).toBe(WagerTransactionStatus.Processed);
+    expect(result.balance.amount).toBe('150.00');
+    expect(result.idempotentReplay).toBe(false);
+
+    const em = orm.em.fork();
+
+    const storedWallet = await em.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('150.00');
+    expect(storedWallet.version).toBe(2);
+
+    const ledger = await em.find(
+        WalletLedgerEntryEntity,
+        { transactionId: result.transactionId },
+    );
+
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0].direction).toBe(LedgerDirection.Credit);
+    expect(ledger[0].amount).toBe('50.00');
+    expect(ledger[0].balanceBefore).toBe('100.00');
+    expect(ledger[0].balanceAfter).toBe('150.00');
+
+    const transaction = await em.findOneOrFail(
+        WagerTransactionEntity,
+        { id: result.transactionId },
+    );
+
+    expect(transaction.kind).toBe(WagerTransactionKind.Win);
+    expect(transaction.status).toBe(WagerTransactionStatus.Processed);
+    expect(transaction.resultBalance).toBe('150.00');
+
+    const events = await em.find(
+        OutboxMessageEntity,
+        { aggregateId: wallet.id },
+    );
+
+    const transactionEvents = events.filter(
+        (event) =>
+        (event.payload.data as { transactionId?: string })
+            ?.transactionId === result.transactionId,
+    );
+
+    expect(
+        transactionEvents.map((event) => event.eventType).sort(),
+    ).toEqual([
+        'WagerTransactionProcessed',
+        'WalletBalanceChanged',
+    ]);
+  });
+
+
+  it('processes LOSS without changing balance or ledger', async () => {
+    const wallet = await createWallet('100.00');
+    const processor = createProcessor();
+
+    const input = {
+        ...betInput(wallet, '50.00'),
+        kind: WagerTransactionKind.Loss,
+    };
+
+    const result = await processor.execute(input);
+
+    expect(result.status).toBe(WagerTransactionStatus.Processed);
+    expect(result.balance.amount).toBe('100.00');
+    expect(result.idempotentReplay).toBe(false);
+
+    const em = orm.em.fork();
+
+    const storedWallet = await em.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('100.00');
+    expect(storedWallet.version).toBe(1);
+
+    const transaction = await em.findOneOrFail(
+        WagerTransactionEntity,
+        { id: result.transactionId },
+    );
+
+    expect(transaction.kind).toBe(WagerTransactionKind.Loss);
+    expect(transaction.status).toBe(WagerTransactionStatus.Processed);
+    expect(transaction.resultBalance).toBe('100.00');
+
+    const ledgerCount = await em.count(
+        WalletLedgerEntryEntity,
+        { transactionId: result.transactionId },
+    );
+
+    expect(ledgerCount).toBe(0);
+
+    const events = await em.find(
+        OutboxMessageEntity,
+        { aggregateId: wallet.id },
+    );
+
+    const transactionEvents = events.filter(
+        (event) =>
+        (event.payload.data as { transactionId?: string })
+            ?.transactionId === result.transactionId,
+    );
+
+    expect(transactionEvents).toHaveLength(1);
+    expect(transactionEvents[0].eventType).toBe(
+        'WagerTransactionProcessed',
+    );
+  });
+
+
 });
