@@ -10,6 +10,8 @@ import {
   DeleteMessageCommand,
 } from '@aws-sdk/client-sqs';
 
+import { GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
+
 export interface SendFifoMessageInput {
   queueUrl: string;
   body: Record<string, unknown>;
@@ -135,5 +137,29 @@ export class SqsService implements OnModuleDestroy {
       }),
     );
   }
+
+  async getQueueStats(queueUrl: string) {
+    const response = await this.client.send(
+      new GetQueueAttributesCommand({
+        QueueUrl: queueUrl,
+        AttributeNames: [
+          'ApproximateNumberOfMessages',
+          'ApproximateNumberOfMessagesNotVisible',
+        ],
+      }),
+    );
+
+    const attributes = response.Attributes ?? {};
+
+    return {
+      available: Number(
+        attributes.ApproximateNumberOfMessages ?? 0,
+      ),
+      inFlight: Number(
+        attributes.ApproximateNumberOfMessagesNotVisible ?? 0,
+      ),
+    };
+  }
+
 
 }

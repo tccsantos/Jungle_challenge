@@ -3,7 +3,10 @@ import {
   Get,
   ServiceUnavailableException,
 } from '@nestjs/common';
+
 import { EntityManager } from '@mikro-orm/postgresql';
+import { SqsService } from '../messaging/infrastructure/sqs.service.js';
+
 
 interface OutboxStats {
   pending: number;
@@ -14,7 +17,10 @@ interface OutboxStats {
 
 @Controller('internal/health')
 export class HealthController {
-  constructor(private readonly em: EntityManager) {}
+  constructor(
+    private readonly em: EntityManager,
+    private readonly sqs: SqsService,
+  ) {}
 
   @Get()
   async check() {
@@ -53,6 +59,21 @@ export class HealthController {
 
       const stats = rows[0];
 
+      const commandQueueUrl =
+        process.env.SQS_COMMANDS_QUEUE_URL;
+
+      const eventsQueueUrl =
+        process.env.SQS_EVENTS_QUEUE_URL;
+
+      if (!commandQueueUrl || !eventsQueueUrl) {
+        throw new Error('SQS queue URLs are not configured');
+      }
+
+      const [commands, events] = await Promise.all([
+        this.sqs.getQueueStats(commandQueueUrl),
+        this.sqs.getQueueStats(eventsQueueUrl),
+      ]);
+
       return {
         status: 'ok',
         database: 'connected',
@@ -63,6 +84,11 @@ export class HealthController {
           failedAttempts: stats?.failed_attempts ?? 0,
         },
         timestamp: new Date().toISOString(),
+        sqs: {
+          status: 'connected',
+          commands,
+          events,
+        },
       };
     } catch {
       throw new ServiceUnavailableException({
