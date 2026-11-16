@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EntityManager } from '@mikro-orm/core';
+import { EntityManager } from '@mikro-orm/postgresql';
 
 import { WalletLedgerEntry } from '../domain/wallet-ledger-entry.js';
 import { WalletLedgerEntryEntity } from '../entities/wallet-ledger-entry.entity.js';
