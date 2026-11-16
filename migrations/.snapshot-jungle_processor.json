@@ -680,6 +680,19 @@
           "keyName": "wager_transactions_provider_id_reference_external__48426_index",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [
+            "provider_id",
+            "reference_transaction_id",
+            "kind"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "wager_transactions_unique_processed_reversal",
+          "primary": false,
+          "unique": true,
+          "where": "\n    reference_transaction_id IS NOT NULL\n    AND kind IN ('REFUND', 'ROLLBACK')\n    AND status = 'PROCESSED'\n  "
         }
       ],
       "checks": [],
