@@ -74,7 +74,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
   function createRetryProcessor(): RetryPendingReferencesUseCase {
     const em = orm.em.fork();
-    
+
     return new RetryPendingReferencesUseCase(
         em,
         new WalletRepository(em),
@@ -1195,6 +1195,13 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         expect(transaction.failureCode).toBe(
             FailureCode.ReferenceNotFound,
         );
+
+        expect(transaction.referenceRetryAttempts).toBe(
+            MAX_REFERENCE_RETRY_ATTEMPTS,
+        );
+
+        expect(transaction.referenceRetryAttempts).toBe(5);
+
 
         expect(
             await em.count(WalletLedgerEntryEntity, {

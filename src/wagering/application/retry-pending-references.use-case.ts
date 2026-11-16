@@ -193,9 +193,17 @@ export class RetryPendingReferencesUseCase {
       ) {
         const attempts = retryAttempts + 1;
 
-        if (attempts >= MAX_REFERENCE_RETRY_ATTEMPTS) {
-          return reject(FailureCode.ReferenceNotFound);
-        }
+        
+      if (attempts >= MAX_REFERENCE_RETRY_ATTEMPTS) {
+        await this.transactionRepository.recordReferenceRetryAttempt(
+          transaction.id,
+          attempts,
+          tx,
+        );
+
+        return reject(FailureCode.ReferenceNotFound);
+      }
+
 
         const delayMs = getReferenceRetryDelayMs(attempts);
 

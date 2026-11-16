@@ -287,5 +287,28 @@ export class WagerTransactionRepository {
     // junto ao commit da transação SQL do worker.
   }
 
+  async recordReferenceRetryAttempt(
+    transactionId: string,
+    attempts: number,
+    em: EntityManager,
+  ): Promise<void> {
+    if (!Number.isInteger(attempts) || attempts < 1) {
+      throw new Error('Invalid retry attempts');
+    }
+
+    const entity = await em.findOneOrFail(
+      WagerTransactionEntity,
+      {
+        id: transactionId,
+        status: WagerTransactionStatus.PendingReference,
+      },
+    );
+
+    entity.referenceRetryAttempts = attempts;
+
+    // O EntityManager já está na transação SQL do worker.
+    // As alterações serão persistidas no commit.
+  }
+
 
 }
