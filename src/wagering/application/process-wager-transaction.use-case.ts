@@ -69,6 +69,8 @@ export class ProcessWagerTransactionUseCase {
       WagerTransactionKind.Bet,
       WagerTransactionKind.Win,
       WagerTransactionKind.Loss,
+      WagerTransactionKind.Refund,
+      WagerTransactionKind.Rollback,
     ];
 
     if (
@@ -108,12 +110,36 @@ export class ProcessWagerTransactionUseCase {
       );
     }
 
+    const requiresReference =
+      input.kind === WagerTransactionKind.Refund ||
+      input.kind === WagerTransactionKind.Rollback;
+
     if (
       typeof input.money?.amount !== 'string' ||
-      typeof input.money?.currency !== 'string' ||
+      typeof input.money?.currency !== 'string'
+    ) {
+      throw new BadRequestException('Invalid money');
+    }
+
+    if (
+      requiresReference &&
+      (
+        typeof input.referenceExternalTransactionId !== 'string' ||
+        !input.referenceExternalTransactionId.trim()
+      )
+    ) {
+      throw new BadRequestException(
+        'Reference transaction is required',
+      );
+    }
+
+    if (
+      !requiresReference &&
       input.referenceExternalTransactionId !== undefined
     ) {
-      throw new BadRequestException('Invalid BET payload');
+      throw new BadRequestException(
+        'This transaction kind cannot have a reference',
+      );
     }
 
     let money: Money;
@@ -145,6 +171,7 @@ export class ProcessWagerTransactionUseCase {
         amount: money.toDecimalString(),
         currency: money.currency,
       },
+      referenceExternalTransactionId: input.referenceExternalTransactionId,
     };
 
     const payloadHash = createWagerPayloadHash(normalizedInput);
@@ -229,6 +256,7 @@ export class ProcessWagerTransactionUseCase {
         gameId: input.gameId,
         kind: input.kind as WagerTransactionKind,
         money,
+        referenceExternalTransactionId: input.referenceExternalTransactionId,
       });
 
       const correlationId = transaction.id;
