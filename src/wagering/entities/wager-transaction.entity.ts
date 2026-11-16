@@ -35,6 +35,13 @@ import {
 @Index({
   properties: ['providerId', 'referenceExternalTransactionId'],
 })
+@Index({
+  name: 'wager_transactions_reference_retry_idx',
+  properties: [
+    'status',
+    'referenceNextRetryAt',
+  ],
+})
 export class WagerTransactionEntity {
   @PrimaryKey({ columnType: 'uuid' })
   id: string = randomUUID();
