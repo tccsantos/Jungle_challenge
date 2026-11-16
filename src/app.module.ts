@@ -6,6 +6,7 @@ import { AppService } from './app.service.js';
 import mikroOrmConfig from './mikro-orm.config.js';
 
 import { WalletModule } from './wallet/wallet.module.js';
+import { WageringModule } from './wagering/wagering.module.js';
 
 import { WalletEntity } from './wallet/entities/wallet.entity.js';
 import { WalletLedgerEntryEntity } from './wallet/entities/wallet-ledger-entry.entity.js';
@@ -27,6 +28,7 @@ import { OutboxMessageEntity } from './messaging/entities/outbox-message.entity.
       entitiesTs: [],
     }),
     WalletModule,
+    WageringModule,
   ],
   controllers: [AppController],
   providers: [AppService],
