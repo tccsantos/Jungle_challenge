@@ -51,7 +51,9 @@ function parseCommand(body: string): WagerCommandEnvelope {
   let parsed: unknown;
 
   try {
-    parsed = JSON.parse(body);
+    const parsed: unknown = normalizeCommandEnvelope(
+      JSON.parse(body),
+    );
   } catch {
     throw new InvalidWagerCommandError(
       'Message body must be valid JSON',
@@ -151,6 +153,47 @@ function parseCommand(body: string): WagerCommandEnvelope {
     commandType: 'ProcessWagerTransaction',
     schemaVersion: 1,
     data: input,
+  };
+}
+
+function normalizeCommandEnvelope(value: unknown): unknown {
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    Array.isArray(value)
+  ) {
+    return value;
+  }
+
+  const envelope = value as Record<string, unknown>;
+
+  // Compatibilidade temporária com o contrato anterior.
+  if (!('type' in envelope)) {
+    return value;
+  }
+
+  if (envelope.type !== 'WagerTransactionRequested') {
+    throw new InvalidWagerCommandError(
+      'Unsupported wager message type',
+    );
+  }
+
+  if (
+    typeof envelope.occurredAt !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(
+      envelope.occurredAt,
+    ) ||
+    Number.isNaN(Date.parse(envelope.occurredAt))
+  ) {
+    throw new InvalidWagerCommandError(
+      'Invalid occurredAt',
+    );
+  }
+
+  return {
+    ...envelope,
+    commandType: 'ProcessWagerTransaction',
+    schemaVersion: 1,
   };
 }
 
