@@ -649,4 +649,142 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
   });
 
 
+  it('stores PENDING_REFERENCE without changing the wallet', async () => {
+    const wallet = await createWallet('100.00');
+    const processor = createProcessor();
+
+    const refund = {
+        ...betInput(wallet, '40.00'),
+        kind: WagerTransactionKind.Refund,
+        referenceExternalTransactionId: `missing-${uniqueId()}`,
+    };
+
+    const result = await processor.execute(refund);
+
+    expect(result.status).toBe(WagerTransactionStatus.PendingReference);
+    expect(result.balance.amount).toBe('100.00');
+
+    const em = orm.em.fork();
+
+    const storedWallet = await em.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('100.00');
+    expect(storedWallet.version).toBe(1);
+
+    const transaction = await em.findOneOrFail(
+        WagerTransactionEntity,
+        { id: result.transactionId },
+    );
+
+    expect(transaction.status).toBe(WagerTransactionStatus.PendingReference);
+    expect(transaction.referenceExternalTransactionId).toBe(
+        refund.referenceExternalTransactionId,
+    );
+
+    expect(
+        await em.count(WalletLedgerEntryEntity, {
+        transactionId: result.transactionId,
+        }),
+    ).toBe(0);
+
+    const events = await em.find(
+        OutboxMessageEntity,
+        { aggregateId: wallet.id },
+    );
+
+    const transactionEvents = events.filter(
+        (event) =>
+        (event.payload.data as { transactionId?: string })
+            ?.transactionId === result.transactionId,
+    );
+
+    expect(transactionEvents).toHaveLength(1);
+    expect(transactionEvents[0].eventType).toBe(
+        'WagerTransactionPendingReference',
+    );
+  });
+
+
+  it('rejects ROLLBACK when reversal would overdraw', async () => {
+    const wallet = await createWallet('100.00');
+    const processor = createProcessor();
+
+    const win = {
+        ...betInput(wallet, '80.00'),
+        kind: WagerTransactionKind.Win,
+    };
+
+    const winResult = await processor.execute(win);
+
+    expect(winResult.balance.amount).toBe('180.00');
+
+    const betResult = await processor.execute(
+        betInput(wallet, '150.00'),
+    );
+
+    expect(betResult.status).toBe(WagerTransactionStatus.Processed);
+    expect(betResult.balance.amount).toBe('30.00');
+
+    const rollback = {
+        ...betInput(wallet, '80.00'),
+        kind: WagerTransactionKind.Rollback,
+        roundId: win.roundId,
+        referenceExternalTransactionId: win.externalTransactionId,
+    };
+
+    const result = await processor.execute(rollback);
+
+    expect(result.status).toBe(WagerTransactionStatus.Rejected);
+    expect(result.failureCode).toBe(
+        FailureCode.ReversalWouldOverdraw,
+    );
+    expect(result.balance.amount).toBe('30.00');
+
+    const em = orm.em.fork();
+
+    const storedWallet = await em.findOneOrFail(
+        WalletEntity,
+        { id: wallet.id },
+    );
+
+    expect(storedWallet.balance).toBe('30.00');
+    expect(storedWallet.version).toBe(3);
+
+    const transaction = await em.findOneOrFail(
+        WagerTransactionEntity,
+        { id: result.transactionId },
+    );
+
+    expect(transaction.status).toBe(WagerTransactionStatus.Rejected);
+    expect(transaction.failureCode).toBe(
+        FailureCode.ReversalWouldOverdraw,
+    );
+
+    expect(
+        await em.count(WalletLedgerEntryEntity, {
+        transactionId: result.transactionId,
+        }),
+    ).toBe(0);
+
+    const events = await em.find(
+        OutboxMessageEntity,
+        { aggregateId: wallet.id },
+    );
+
+    const transactionEvents = events.filter(
+        (event) =>
+        (event.payload.data as { transactionId?: string })
+            ?.transactionId === result.transactionId,
+    );
+
+    expect(transactionEvents).toHaveLength(1);
+    expect(transactionEvents[0].eventType).toBe(
+        'WagerTransactionRejected',
+    );
+  });
+
+
 });
