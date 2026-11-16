@@ -152,7 +152,7 @@ describe('HTTP API - E2E', () => {
   it('reconciles a wallet individually', async () => {
     const response = await request(app.getHttpServer())
       .post(`/wallets/${walletId}/reconciliation`)
-      .expect(201);
+      .expect(200);
 
     expect(response.body).toEqual({
       walletId,
