@@ -25,8 +25,8 @@ try {
       MessageDeduplicationId: randomUUID(),
       MessageBody: JSON.stringify({
         messageId,
-        commandType: 'ProcessWagerTransaction',
-        schemaVersion: 1,
+        type: 'WagerTransactionRequested',
+        occurredAt: new Date().toISOString(),
         data: {
           providerId: 'crash-test',
           externalTransactionId: `bet-${runId}`,

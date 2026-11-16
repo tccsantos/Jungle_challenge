@@ -8,6 +8,8 @@ import {
 
 import type { EntityManager } from '@mikro-orm/postgresql';
 
+import { createHash } from 'node:crypto';
+
 import {
   InboxRepository,
   InboxPayloadConflictError,
@@ -53,6 +55,15 @@ describe('ProcessWagerCommandUseCase', () => {
       },
     },
   };
+
+  const newEnvelope = () => ({
+    messageId: MESSAGE_ID,
+    type: 'WagerTransactionRequested',
+    occurredAt: '2026-11-16T13:30:00.000Z',
+    data: structuredClone(command.data),
+  });
+
+  const newBody = () => JSON.stringify(newEnvelope());
 
   let useCase: ProcessWagerCommandUseCase;
 
@@ -258,4 +269,197 @@ describe('ProcessWagerCommandUseCase', () => {
 
     expect(executeWager).not.toHaveBeenCalled();
   });
+
+  describe('WagerTransactionRequested envelope', () => {
+    it('processes the new SQS envelope successfully', async () => {
+      const result = await useCase.execute(newBody());
+
+      expect(result).toBe('PROCESSED');
+
+      expect(receive).toHaveBeenCalledTimes(1);
+      expect(receive).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: MESSAGE_ID,
+          consumerName: 'wager-commands',
+        }),
+        expect.anything(),
+      );
+
+      expect(executeWager).toHaveBeenCalledWith(
+        command.data,
+        expect.anything(),
+      );
+
+      expect(markProcessed).toHaveBeenCalledTimes(1);
+    });
+
+    it('recognizes a redelivered new-envelope message', async () => {
+      receive.mockResolvedValue({
+        alreadyProcessed: true,
+      });
+
+      const result = await useCase.execute(newBody());
+
+      expect(result).toBe('ALREADY_PROCESSED');
+      expect(executeWager).not.toHaveBeenCalled();
+      expect(markProcessed).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unsupported message type', async () => {
+      const invalid = {
+        ...newEnvelope(),
+        type: 'UnknownCommand',
+      };
+
+      await expect(
+        useCase.execute(JSON.stringify(invalid)),
+      ).rejects.toThrow('Unsupported wager message type');
+
+      expect(receive).not.toHaveBeenCalled();
+    });
+
+    it('rejects an absent occurredAt', async () => {
+      const invalid = { ...newEnvelope() } as Record<
+        string,
+        unknown
+      >;
+
+      delete invalid.occurredAt;
+
+      await expect(
+        useCase.execute(JSON.stringify(invalid)),
+      ).rejects.toThrow('Invalid occurredAt');
+
+      expect(receive).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid occurredAt', async () => {
+      const invalid = {
+        ...newEnvelope(),
+        occurredAt: 'invalid-date',
+      };
+
+      await expect(
+        useCase.execute(JSON.stringify(invalid)),
+      ).rejects.toThrow('Invalid occurredAt');
+
+      expect(receive).not.toHaveBeenCalled();
+    });
+
+    it('rejects a missing messageId', async () => {
+      const invalid = {
+        ...newEnvelope(),
+        messageId: '',
+      };
+
+      await expect(
+        useCase.execute(JSON.stringify(invalid)),
+      ).rejects.toBeInstanceOf(
+        InvalidWagerCommandError,
+      );
+
+      expect(receive).not.toHaveBeenCalled();
+    });
+
+    it('rejects a new envelope with empty walletId', async () => {
+      const invalid = newEnvelope();
+      invalid.data.walletId = '';
+
+      await expect(
+        useCase.execute(JSON.stringify(invalid)),
+      ).rejects.toThrow('Invalid wager transaction fields');
+
+      expect(receive).not.toHaveBeenCalled();
+      expect(executeWager).not.toHaveBeenCalled();
+    });
+
+    it('rejects a numeric monetary amount', async () => {
+      const invalid = {
+        ...newEnvelope(),
+        data: {
+          ...command.data,
+          money: {
+            amount: 10,
+            currency: 'BRL',
+          },
+        },
+      };
+
+      await expect(
+        useCase.execute(JSON.stringify(invalid)),
+      ).rejects.toThrow('Invalid wager transaction fields');
+
+      expect(receive).not.toHaveBeenCalled();
+      expect(executeWager).not.toHaveBeenCalled();
+    });
+
+    it('preserves the raw message hash in the inbox', async () => {
+      const rawBody = newBody();
+
+      await useCase.execute(rawBody);
+
+      const inboxInput = receive.mock.calls[0][0] as {
+        messageId: string;
+        consumerName: string;
+        payloadHash: string;
+      };
+
+      expect(inboxInput.messageId).toBe(MESSAGE_ID);
+      expect(inboxInput.payloadHash).toBe(
+        createHash('sha256')
+          .update(rawBody)
+          .digest('hex'),
+      );
+
+      expect(markProcessed).toHaveBeenCalledWith(
+        inboxInput,
+        expect.anything(),
+      );
+    });
+
+    it('does not process a new-envelope message on inbox conflict', async () => {
+      receive.mockRejectedValue(
+        new InboxPayloadConflictError(),
+      );
+
+      await expect(
+        useCase.execute(newBody()),
+      ).rejects.toBeInstanceOf(
+        InboxPayloadConflictError,
+      );
+
+      expect(executeWager).not.toHaveBeenCalled();
+      expect(markProcessed).not.toHaveBeenCalled();
+    });
+
+    it('uses the same transaction for inbox and financial processing', async () => {
+      await useCase.execute(newBody());
+
+      const inboxTx = receive.mock.calls[0][1];
+      const financialTx = executeWager.mock.calls[0][1];
+      const confirmationTx = markProcessed.mock.calls[0][1];
+
+      expect(inboxTx).toBe(financialTx);
+      expect(financialTx).toBe(confirmationTx);
+    });
+
+    it('rejects a REFUND without reference transaction', async () => {
+      const invalid = {
+        ...newEnvelope(),
+        data: {
+          ...command.data,
+          kind: WagerTransactionKind.Refund,
+        },
+      };
+
+      await expect(
+        useCase.execute(JSON.stringify(invalid)),
+      ).rejects.toThrow(
+        'Invalid reference for transaction kind',
+      );
+
+      expect(receive).not.toHaveBeenCalled();
+    });
+  });
+
 });

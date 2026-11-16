@@ -47,18 +47,18 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function parseCommand(body: string): WagerCommandEnvelope {
+export function parseCommand(body: string): WagerCommandEnvelope {
   let parsed: unknown;
 
   try {
-    const parsed: unknown = normalizeCommandEnvelope(
-      JSON.parse(body),
-    );
+    parsed = JSON.parse(body) as unknown;
   } catch {
     throw new InvalidWagerCommandError(
       'Message body must be valid JSON',
     );
   }
+
+  parsed = normalizeCommandEnvelope(parsed);
 
   if (!isObject(parsed)) {
     throw new InvalidWagerCommandError(
