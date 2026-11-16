@@ -717,6 +717,17 @@
         },
         {
           "columnNames": [
+            "status",
+            "reference_next_retry_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "wager_transactions_reference_retry_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
             "provider_id",
             "reference_transaction_id",
             "kind"
