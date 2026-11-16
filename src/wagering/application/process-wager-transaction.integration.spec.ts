@@ -1785,7 +1785,7 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
   describe('OutboxRepository - PostgreSQL', () => {
     async function createOutboxMessage(
         aggregateId: string,
-        occurredAt = new Date(),
+        occurredAt = new Date('2000-01-01T00:00:00.000Z'),
     ): Promise<string> {
         const id = randomUUID();
         const em = orm.em.fork();
