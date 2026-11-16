@@ -171,4 +171,21 @@ export class WagerTransactionRepository {
     };
   }
 
+
+  async findProcessedReversal(
+    providerId: string,
+    referenceTransactionId: string,
+    kind: WagerTransactionKind,
+    em: EntityManager = this.em,
+  ): Promise<WagerTransaction | null> {
+    const entity = await em.findOne(WagerTransactionEntity, {
+      providerId,
+      referenceTransaction: referenceTransactionId,
+      kind,
+      status: WagerTransactionStatus.Processed,
+    });
+
+    return entity ? this.toDomain(entity) : null;
+  }
+
 }
