@@ -1618,9 +1618,9 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         'WalletBalanceChanged',
     ].sort());
 
-    });
+  });
 
-    it('rolls back a REFUND when outbox persistence fails', async () => {
+  it('rolls back a REFUND when outbox persistence fails', async () => {
     const wallet = await createWallet('100.00');
 
     const bet = betInput(wallet, '40.00');
@@ -1779,6 +1779,151 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
         'WalletBalanceChanged',
     ].sort());
 
+  });
+
+
+  describe('OutboxRepository - PostgreSQL', () => {
+    async function createOutboxMessage(
+        aggregateId: string,
+        occurredAt = new Date(),
+    ): Promise<string> {
+        const id = randomUUID();
+        const em = orm.em.fork();
+
+        const entity = new OutboxMessageEntity();
+
+        entity.id = id;
+        entity.aggregateId = aggregateId;
+        entity.eventType = 'WagerTransactionProcessed';
+        entity.occurredAt = occurredAt;
+        entity.attempts = 0;
+        entity.payload = {
+        eventId: id,
+        aggregateId,
+        eventType: entity.eventType,
+        occurredAt: occurredAt.toISOString(),
+        data: {
+            transactionId: randomUUID(),
+        },
+        };
+
+        await em.persistAndFlush(entity);
+
+        return id;
+    }
+
+    it('claims a pending message and confirms publication', async () => {
+        const id = await createOutboxMessage(randomUUID());
+
+        const repository = new OutboxRepository(orm.em.fork());
+        const claimed = await repository.claimPending(100);
+
+        const item = claimed.find(
+        (candidate) => candidate.message.id === id,
+        );
+
+        expect(item).toBeDefined();
+
+        const confirmed =
+        await repository.confirmPublished(item!);
+
+        expect(confirmed).toBe(true);
+
+        const em = orm.em.fork();
+        const stored = await em.findOneOrFail(
+        OutboxMessageEntity,
+        { id },
+        );
+
+        expect(stored.publishedAt).toBeDefined();
+        expect(stored.leaseToken).toBeNull();
+        expect(stored.leaseUntil).toBeNull();
+
+        // Não pode confirmar duas vezes.
+        await expect(
+        repository.confirmPublished(item!),
+        ).rejects.toThrow();
+
+        const finalCheck = orm.em.fork();
+
+        expect(
+        (await finalCheck.findOneOrFail(
+            OutboxMessageEntity,
+            { id },
+        )).publishedAt,
+        ).toBeDefined();
+    });
+
+    it('does not allow two publishers to claim the same message', async () => {
+        const id = await createOutboxMessage(randomUUID());
+
+        const firstRepository =
+        new OutboxRepository(orm.em.fork());
+
+        const secondRepository =
+        new OutboxRepository(orm.em.fork());
+
+        const [first, second] = await Promise.all([
+        firstRepository.claimPending(100),
+        secondRepository.claimPending(100),
+        ]);
+
+        const claimedCount = [...first, ...second].filter(
+        (item) => item.message.id === id,
+        ).length;
+
+        expect(claimedCount).toBe(1);
+    });
+
+    it('recovers a message after its lease expires', async () => {
+        const id = await createOutboxMessage(randomUUID());
+
+        const repository = new OutboxRepository(orm.em.fork());
+
+        const initialClaim = await repository.claimPending(100);
+
+        const original = initialClaim.find(
+        (item) => item.message.id === id,
+        );
+
+        expect(original).toBeDefined();
+
+        // Simula expiração do lease de um publisher
+        // que caiu antes de confirmar a publicação.
+        await orm.em.fork().nativeUpdate(
+        OutboxMessageEntity,
+        { id },
+        {
+            leaseUntil: new Date(Date.now() - 1000),
+        },
+        );
+
+        const recovered = await new OutboxRepository(
+        orm.em.fork(),
+        ).claimPending(100);
+
+        const reclaimed = recovered.find(
+        (item) => item.message.id === id,
+        );
+
+        expect(reclaimed).toBeDefined();
+
+        expect(reclaimed!.leaseToken).not.toBe(
+        original!.leaseToken,
+        );
+
+        // O publisher antigo perdeu a autorização.
+        const oldConfirmation =
+        await repository.confirmPublished(original!);
+
+        expect(oldConfirmation).toBe(false);
+
+        // O novo publisher consegue confirmar.
+        const newConfirmation =
+        await repository.confirmPublished(reclaimed!);
+
+        expect(newConfirmation).toBe(true);
+    });
   });
 
 
