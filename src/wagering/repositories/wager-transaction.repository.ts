@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { EntityManager } from '@mikro-orm/core';
+import { 
+  EntityManager,
+  LockMode 
+} from '@mikro-orm/core';
 
 import { Money } from '../../shared/domain/money.js';
 import {
@@ -187,5 +190,102 @@ export class WagerTransactionRepository {
 
     return entity ? this.toDomain(entity) : null;
   }
+
+
+  async findDuePendingReferences(
+    now: Date,
+    limit: number = 50,
+    em: EntityManager = this.em,
+  ): Promise<WagerTransaction[]> {
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    ) {
+      throw new Error('Limit must be between 1 and 100');
+    }
+
+    const entities = await em.find(
+      WagerTransactionEntity,
+      {
+        status: WagerTransactionStatus.PendingReference,
+        $or: [
+          { referenceNextRetryAt: null },
+          { referenceNextRetryAt: { $lte: now } },
+        ],
+      },
+      {
+        orderBy: {
+          createdAt: 'asc',
+          id: 'asc',
+        },
+        limit,
+      },
+    );
+
+    return entities.map((entity) => this.toDomain(entity));
+  }
+
+
+  async findPendingReferenceForUpdate(
+    transactionId: string,
+    em: EntityManager,
+  ): Promise<{
+    transaction: WagerTransaction;
+    retryAttempts: number;
+    nextRetryAt: Date | null;
+  } | null> {
+    const entity = await em.findOne(
+      WagerTransactionEntity,
+      {
+        id: transactionId,
+        status: WagerTransactionStatus.PendingReference,
+      },
+      {
+        lockMode: LockMode.PESSIMISTIC_WRITE,
+      },
+    );
+
+    if (!entity) {
+      return null;
+    }
+
+    return {
+      transaction: this.toDomain(entity),
+      retryAttempts: entity.referenceRetryAttempts,
+      nextRetryAt: entity.referenceNextRetryAt ?? null,
+    };
+  }
+
+
+  async scheduleReferenceRetry(
+    transactionId: string,
+    attempts: number,
+    nextRetryAt: Date,
+    em: EntityManager,
+  ): Promise<void> {
+    if (!Number.isInteger(attempts) || attempts < 1) {
+      throw new Error('Invalid retry attempts');
+    }
+
+    if (Number.isNaN(nextRetryAt.getTime())) {
+      throw new Error('Invalid retry date');
+    }
+
+    const entity = await em.findOneOrFail(
+      WagerTransactionEntity,
+      {
+        id: transactionId,
+        status: WagerTransactionStatus.PendingReference,
+      },
+    );
+
+    entity.referenceRetryAttempts = attempts;
+    entity.referenceNextRetryAt = nextRetryAt;
+
+    // Sem flush aqui: as alterações serão persistidas
+    // junto ao commit da transação SQL do worker.
+  }
+
 
 }
