@@ -121,4 +121,19 @@ export class WagerTransactionEntity {
     nullable: true,
   })
   resultBalance?: string;
+
+
+  @Property({
+    fieldName: 'reference_retry_attempts',
+    default: 0,
+  })
+  referenceRetryAttempts: number = 0;
+
+  @Property({
+    fieldName: 'reference_next_retry_at',
+    columnType: 'timestamptz',
+    nullable: true,
+  })
+  referenceNextRetryAt?: Date;
+
 }
