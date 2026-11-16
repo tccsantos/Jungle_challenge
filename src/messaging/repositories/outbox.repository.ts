@@ -75,15 +75,9 @@ export class OutboxRepository {
               FROM outbox_messages previous
               WHERE previous.aggregate_id = o.aggregate_id
                 AND previous.published_at IS NULL
-                AND (
-                  previous.occurred_at < o.occurred_at
-                  OR (
-                    previous.occurred_at = o.occurred_at
-                    AND previous.id < o.id
-                  )
-                )
+                AND previous.publish_order < o.publish_order
             )
-          ORDER BY o.occurred_at ASC, o.id ASC
+          ORDER BY o.publish_order ASC
           LIMIT ?
           FOR UPDATE OF o SKIP LOCKED
         )
