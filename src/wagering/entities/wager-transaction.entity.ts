@@ -23,6 +23,15 @@ import {
 @Unique({
   properties: ['providerId', 'idempotencyKey'],
 })
+@Unique({
+  name: 'wager_transactions_unique_processed_reversal',
+  properties: ['providerId', 'referenceTransaction', 'kind'],
+  where: `
+    reference_transaction_id IS NOT NULL
+    AND kind IN ('REFUND', 'ROLLBACK')
+    AND status = 'PROCESSED'
+  `,
+})
 @Index({
   properties: ['providerId', 'referenceExternalTransactionId'],
 })
