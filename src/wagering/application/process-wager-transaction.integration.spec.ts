@@ -1546,6 +1546,28 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
     expect(storedRefund).toBeNull();
 
+
+    const orphanEvents = await check.find(
+        OutboxMessageEntity,
+        { aggregateId: wallet.id },
+    );
+
+    const refundEvents = orphanEvents.filter((event) => {
+        const payload = event.payload as {
+            data?: {
+                externalTransactionId?: string;
+            };
+        };
+
+        return (
+            payload.data?.externalTransactionId ===
+            refund.externalTransactionId
+        );
+    });
+
+    expect(refundEvents).toHaveLength(0);
+
+
     // A ausência da transação confirma que a operação
     // pode ser recebida novamente com a mesma identidade.
     const retry = await createProcessor().execute(refund);
@@ -1570,6 +1592,33 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
     expect(finalWallet.balance).toBe('100.00');
     expect(finalWallet.version).toBe(3);
+
+    const eventCheck = orm.em.fork();
+
+    const persistedEvents = await eventCheck.find(
+        OutboxMessageEntity,
+        { aggregateId: wallet.id },
+    );
+
+    const successfulRefundEvents = persistedEvents.filter((event) => {
+        const payload = event.payload as {
+            data?: {
+            transactionId?: string;
+            };
+        };
+
+        return payload.data?.transactionId === retry.transactionId;
+    });
+
+    expect(successfulRefundEvents).toHaveLength(2);
+
+    expect(
+        successfulRefundEvents.map((event) => event.eventType).sort(),
+    ).toEqual([
+        'WagerTransactionProcessed',
+        'WalletBalanceChanged',
+    ].sort());
+
     });
 
     it('rolls back a REFUND when outbox persistence fails', async () => {
@@ -1655,6 +1704,26 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
     expect(storedRefund).toBeNull();
 
+    const orphanEvents = await check.find(
+        OutboxMessageEntity,
+        { aggregateId: wallet.id },
+    );
+
+    const refundEvents = orphanEvents.filter((event) => {
+        const payload = event.payload as {
+            data?: {
+                externalTransactionId?: string;
+            };
+        };
+
+        return (
+            payload.data?.externalTransactionId ===
+            refund.externalTransactionId
+        );
+    });
+
+    expect(refundEvents).toHaveLength(0);
+
     // Nenhum REFUND ficou persistido.
     // Reenviar a mesma operação deve funcionar normalmente.
     const retry = await createProcessor().execute(refund);
@@ -1683,6 +1752,34 @@ describe('ProcessWagerTransactionUseCase - PostgreSQL', () => {
 
     expect(finalWallet.balance).toBe('100.00');
     expect(finalWallet.version).toBe(3);
+
+
+    const eventCheck = orm.em.fork();
+
+    const persistedEvents = await eventCheck.find(
+        OutboxMessageEntity,
+        { aggregateId: wallet.id },
+    );
+
+    const successfulRefundEvents = persistedEvents.filter((event) => {
+        const payload = event.payload as {
+            data?: {
+            transactionId?: string;
+            };
+        };
+
+        return payload.data?.transactionId === retry.transactionId;
+    });
+
+    expect(successfulRefundEvents).toHaveLength(2);
+
+    expect(
+        successfulRefundEvents.map((event) => event.eventType).sort(),
+    ).toEqual([
+        'WagerTransactionProcessed',
+        'WalletBalanceChanged',
+    ].sort());
+
   });
 
 
