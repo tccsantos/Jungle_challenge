@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { EntityManager } from '@mikro-orm/core';
 
 import { Money } from '../../shared/domain/money.js';
-import { WagerTransaction } from '../domain/wager-transaction.js';
+import {
+  WagerTransaction,
+  WagerTransactionKind,
+  WagerTransactionStatus,
+} from '../domain/wager-transaction.js';
 import { WagerTransactionEntity } from '../entities/wager-transaction.entity.js';
 import { WalletEntity } from '../../wallet/entities/wallet.entity.js';
 
