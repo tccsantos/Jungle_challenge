@@ -15,6 +15,8 @@ import { PendingReferenceWorker } from './workers/pending-reference.worker.js';
 import { ProcessWagerCommandUseCase } from './application/process-wager-command.use-case.js';
 import { WagerCommandConsumerWorker } from './workers/wager-command-consumer.worker.js';
 
+import { WagerTransactionQueryRepository } from './repositories/wager-transaction-query.repository.js';
+import { WagerTransactionQueryController } from './wager-transaction-query.controller.js';
 
 @Module({
   imports: [
@@ -22,7 +24,10 @@ import { WagerCommandConsumerWorker } from './workers/wager-command-consumer.wor
     WalletModule,
     MessagingModule,
   ],
-  controllers: [WageringController],
+  controllers: [
+    WageringController,
+    WagerTransactionQueryController,
+  ],
   providers: [
     WagerTransactionRepository,
     ProcessWagerTransactionUseCase,
@@ -30,6 +35,7 @@ import { WagerCommandConsumerWorker } from './workers/wager-command-consumer.wor
     PendingReferenceWorker,
     ProcessWagerCommandUseCase,
     WagerCommandConsumerWorker,
+    WagerTransactionQueryRepository,
   ],
   exports: [
     WagerTransactionRepository,
