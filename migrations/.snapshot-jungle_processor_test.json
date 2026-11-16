@@ -211,6 +211,40 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "lease_token": {
+          "name": "lease_token",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "lease_until": {
+          "name": "lease_until",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "next_attempt_at": {
           "name": "next_attempt_at",
           "type": "timestamptz(6)",
@@ -281,6 +315,18 @@
         }
       },
       "indexes": [
+        {
+          "columnNames": [
+            "published_at",
+            "lease_until",
+            "next_attempt_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "outbox_messages_lease_idx",
+          "primary": false,
+          "unique": false
+        },
         {
           "columnNames": [
             "published_at",
