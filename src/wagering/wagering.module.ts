@@ -6,6 +6,7 @@ import { WagerTransactionRepository } from './repositories/wager-transaction.rep
 
 import { WalletModule } from '../wallet/wallet.module.js';
 import { MessagingModule } from '../messaging/messaging.module.js';
+import { ProcessWagerTransactionUseCase } from './application/process-wager-transaction.use-case.js';
 
 @Module({
   imports: [
@@ -13,7 +14,13 @@ import { MessagingModule } from '../messaging/messaging.module.js';
     WalletModule,
     MessagingModule,
   ],
-  providers: [WagerTransactionRepository],
-  exports: [WagerTransactionRepository],
+  providers: [
+    WagerTransactionRepository,
+    ProcessWagerTransactionUseCase,
+  ],
+  exports: [
+    WagerTransactionRepository,
+    ProcessWagerTransactionUseCase,
+  ],
 })
 export class WageringModule {}
