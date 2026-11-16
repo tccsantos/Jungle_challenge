@@ -8,6 +8,7 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: development
+      DB_DEBUG:  "false"
       PORT: 3000
       DATABASE_URL: postgresql://jungle:jungle_dev@db:5432/jungle_processor
     volumes:

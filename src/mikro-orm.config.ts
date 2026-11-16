@@ -24,5 +24,5 @@ export default defineConfig({
     emit: 'ts',
   },
 
-  debug: process.env.NODE_ENV !== 'production',
+  debug: process.env.DB_DEBUG === 'true',
 });

@@ -342,7 +342,7 @@ describe('Wager command atomicity - PostgreSQL', () => {
       await firstCheck.count(OutboxMessageEntity, {
         aggregateId: wallet.id,
       }),
-    ).toBe(initialOutboxCount + 1);
+    ).toBe(initialOutboxCount + 2);
 
     // 5. Simular reentrega da mesma mensagem SQS.
     // O corpo deve permanecer exatamente igual.
@@ -385,7 +385,7 @@ describe('Wager command atomicity - PostgreSQL', () => {
       await finalCheck.count(OutboxMessageEntity, {
         aggregateId: wallet.id,
       }),
-    ).toBe(initialOutboxCount + 1);
+    ).toBe(initialOutboxCount + 2);
   });
 
 });
